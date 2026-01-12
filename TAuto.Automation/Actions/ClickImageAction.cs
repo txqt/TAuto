@@ -17,48 +17,86 @@ public class ClickImageAction : ActionBase
     
     // ===== Configuration =====
     
+    private string _name = string.Empty;
     /// <summary>
     /// Optional custom name for this action.
     /// </summary>
-    public string Name { get; set; } = string.Empty;
+    public string Name 
+    { 
+        get => _name; 
+        set => SetProperty(ref _name, value); 
+    }
     
+    private string _templatePath = string.Empty;
     /// <summary>
     /// Path to the template image file.
     /// </summary>
-    public string TemplatePath { get; set; } = string.Empty;
+    public string TemplatePath 
+    { 
+        get => _templatePath; 
+        set => SetProperty(ref _templatePath, value); 
+    }
     
+    private double _threshold = 0.8;
     /// <summary>
     /// Matching threshold (0.0 - 1.0). Higher = stricter.
     /// </summary>
-    public double Threshold { get; set; } = 0.8;
+    public double Threshold 
+    { 
+        get => _threshold; 
+        set => SetProperty(ref _threshold, value); 
+    }
     
+    private int _offsetX = 0;
     /// <summary>
     /// Click offset X from center of found image.
     /// </summary>
-    public int OffsetX { get; set; } = 0;
+    public int OffsetX 
+    { 
+        get => _offsetX; 
+        set => SetProperty(ref _offsetX, value); 
+    }
     
+    private int _offsetY = 0;
     /// <summary>
     /// Click offset Y from center of found image.
     /// </summary>
-    public int OffsetY { get; set; } = 0;
+    public int OffsetY 
+    { 
+        get => _offsetY; 
+        set => SetProperty(ref _offsetY, value); 
+    }
     
+    private int _randomOffset = 0;
     /// <summary>
     /// Random offset range in pixels for anti-detection.
     /// </summary>
-    public int RandomOffset { get; set; } = 0;
+    public int RandomOffset 
+    { 
+        get => _randomOffset; 
+        set => SetProperty(ref _randomOffset, value); 
+    }
     
+    private int _timeoutMs = 0;
     /// <summary>
     /// Timeout in milliseconds to wait for image to appear.
     /// 0 = no wait, check once.
     /// </summary>
-    public int TimeoutMs { get; set; } = 0;
+    public int TimeoutMs 
+    { 
+        get => _timeoutMs; 
+        set => SetProperty(ref _timeoutMs, value); 
+    }
     
+    private int _retryInterval = 500;
     /// <summary>
     /// Retry interval in milliseconds when waiting for image.
     /// </summary>
-    // Note: ActionBase has RetryIntervalMs, but this one is specific to "Waiting for image logic" vs "Retrying the whole action".
-    // We can keep it or map it. For now keeping it to avoid breaking deserialization of existing properties.
-    public int RetryInterval { get; set; } = 500;
+    public int RetryInterval 
+    { 
+        get => _retryInterval; 
+        set => SetProperty(ref _retryInterval, value); 
+    }
     
     // ===== Execute =====
     

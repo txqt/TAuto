@@ -18,13 +18,54 @@ public class TapAction : ActionBase
             ? $"Tap ({XPercent:F1}%, {YPercent:F1}%)" 
             : $"Tap ({X}, {Y})";
     
-    public string Name { get; set; } = string.Empty;
-    public int X { get; set; }
-    public int Y { get; set; }
-    public double XPercent { get; set; }
-    public double YPercent { get; set; }
-    public bool UsePercent { get; set; }
-    public int RandomOffset { get; set; } = 0;
+    private string _name = string.Empty;
+    public string Name 
+    { 
+        get => _name; 
+        set => SetProperty(ref _name, value); 
+    }
+    
+    private int _x;
+    public int X 
+    { 
+        get => _x; 
+        set => SetProperty(ref _x, value); 
+    }
+    
+    private int _y;
+    public int Y 
+    { 
+        get => _y; 
+        set => SetProperty(ref _y, value); 
+    }
+    
+    private double _xPercent;
+    public double XPercent 
+    { 
+        get => _xPercent; 
+        set => SetProperty(ref _xPercent, value); 
+    }
+    
+    private double _yPercent;
+    public double YPercent 
+    { 
+        get => _yPercent; 
+        set => SetProperty(ref _yPercent, value); 
+    }
+    
+    private bool _usePercent;
+    public bool UsePercent 
+    { 
+        get => _usePercent; 
+        set => SetProperty(ref _usePercent, value); 
+    }
+    
+    private int _randomOffset = 0;
+    public int RandomOffset 
+    { 
+        get => _randomOffset; 
+        set => SetProperty(ref _randomOffset, value); 
+    }
     
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
     {

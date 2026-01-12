@@ -8,7 +8,7 @@ namespace TAuto.Automation.Actions;
 /// <summary>
 /// Base class for actions providing common property implementations.
 /// </summary>
-public abstract class ActionBase : IAction
+public abstract class ActionBase : IAction, System.ComponentModel.INotifyPropertyChanged
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
     
@@ -23,4 +23,21 @@ public abstract class ActionBase : IAction
     public bool ContinueOnError { get; set; } = false;
 
     public abstract Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct);
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
+    protected void OnPropertyChanged([System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(propertyName));
+    }
+
+    protected bool SetProperty<T>(ref T storage, T value, [System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null)
+    {
+        if (System.Collections.Generic.EqualityComparer<T>.Default.Equals(storage, value))
+            return false;
+
+        storage = value;
+        OnPropertyChanged(propertyName);
+        return true;
+    }
 }

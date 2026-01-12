@@ -19,42 +19,54 @@ public class IfImageFoundAction : ActionBase
     
     // ===== Configuration =====
     
-    /// <summary>
-    /// Optional custom name for this action.
-    /// </summary>
-    public string Name { get; set; } = string.Empty;
+    private string _name = string.Empty;
+    public string Name 
+    { 
+        get => _name; 
+        set => SetProperty(ref _name, value); 
+    }
     
-    /// <summary>
-    /// Path to the template image file to check.
-    /// </summary>
-    public string TemplatePath { get; set; } = string.Empty;
+    private string _templatePath = string.Empty;
+    public string TemplatePath 
+    { 
+        get => _templatePath; 
+        set => SetProperty(ref _templatePath, value); 
+    }
     
-    /// <summary>
-    /// Matching threshold (0.0 - 1.0). Higher = stricter.
-    /// </summary>
-    public double Threshold { get; set; } = 0.8;
+    private double _threshold = 0.8;
+    public double Threshold 
+    { 
+        get => _threshold; 
+        set => SetProperty(ref _threshold, value); 
+    }
     
-    /// <summary>
-    /// Action ID to jump to if image IS found.
-    /// If empty, continues to next action.
-    /// </summary>
-    public string ThenActionId { get; set; } = string.Empty;
+    private string _thenActionId = string.Empty;
+    public string ThenActionId 
+    { 
+        get => _thenActionId; 
+        set => SetProperty(ref _thenActionId, value); 
+    }
     
-    /// <summary>
-    /// Action ID to jump to if image is NOT found.
-    /// If empty, continues to next action.
-    /// </summary>
-    public string ElseActionId { get; set; } = string.Empty;
+    private string _elseActionId = string.Empty;
+    public string ElseActionId 
+    { 
+        get => _elseActionId; 
+        set => SetProperty(ref _elseActionId, value); 
+    }
     
-    /// <summary>
-    /// Whether to force a fresh screen capture.
-    /// </summary>
-    public bool ForceFreshCapture { get; set; } = true;
+    private bool _forceFreshCapture = true;
+    public bool ForceFreshCapture 
+    { 
+        get => _forceFreshCapture; 
+        set => SetProperty(ref _forceFreshCapture, value); 
+    }
     
-    /// <summary>
-    /// If true, stores the found location in context.LastFoundImageLocation.
-    /// </summary>
-    public bool StoreLocation { get; set; } = true;
+    private bool _storeLocation = true;
+    public bool StoreLocation 
+    { 
+        get => _storeLocation; 
+        set => SetProperty(ref _storeLocation, value); 
+    }
     
     // ===== Execute =====
     

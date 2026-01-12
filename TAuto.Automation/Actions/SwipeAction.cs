@@ -17,18 +17,89 @@ public class SwipeAction : ActionBase
             ? $"Swipe ({StartXPercent:F0}%,{StartYPercent:F0}%) → ({EndXPercent:F0}%,{EndYPercent:F0}%)"
             : $"Swipe ({StartX},{StartY}) → ({EndX},{EndY})";
     
-    public string Name { get; set; } = string.Empty;
-    public int StartX { get; set; }
-    public int StartY { get; set; }
-    public int EndX { get; set; }
-    public int EndY { get; set; }
-    public double StartXPercent { get; set; }
-    public double StartYPercent { get; set; }
-    public double EndXPercent { get; set; }
-    public double EndYPercent { get; set; }
-    public bool UsePercent { get; set; }
-    public int DurationMs { get; set; } = 300;
-    public int RandomOffset { get; set; } = 0;
+    private string _name = string.Empty;
+    public string Name 
+    { 
+        get => _name; 
+        set => SetProperty(ref _name, value); 
+    }
+    
+    private int _startX;
+    public int StartX 
+    { 
+        get => _startX; 
+        set => SetProperty(ref _startX, value); 
+    }
+    
+    private int _startY;
+    public int StartY 
+    { 
+        get => _startY; 
+        set => SetProperty(ref _startY, value); 
+    }
+    
+    private int _endX;
+    public int EndX 
+    { 
+        get => _endX; 
+        set => SetProperty(ref _endX, value); 
+    }
+    
+    private int _endY;
+    public int EndY 
+    { 
+        get => _endY; 
+        set => SetProperty(ref _endY, value); 
+    }
+    
+    private double _startXPercent;
+    public double StartXPercent 
+    { 
+        get => _startXPercent; 
+        set => SetProperty(ref _startXPercent, value); 
+    }
+    
+    private double _startYPercent;
+    public double StartYPercent 
+    { 
+        get => _startYPercent; 
+        set => SetProperty(ref _startYPercent, value); 
+    }
+    
+    private double _endXPercent;
+    public double EndXPercent 
+    { 
+        get => _endXPercent; 
+        set => SetProperty(ref _endXPercent, value); 
+    }
+    
+    private double _endYPercent;
+    public double EndYPercent 
+    { 
+        get => _endYPercent; 
+        set => SetProperty(ref _endYPercent, value); 
+    }
+    
+    private bool _usePercent;
+    public bool UsePercent 
+    { 
+        get => _usePercent; 
+        set => SetProperty(ref _usePercent, value); 
+    }
+    
+    private int _durationMs = 300;
+    public int DurationMs 
+    { 
+        get => _durationMs; 
+        set => SetProperty(ref _durationMs, value); 
+    }
+    
+    private int _randomOffset = 0;
+    public int RandomOffset 
+    { 
+        get => _randomOffset; 
+        set => SetProperty(ref _randomOffset, value); 
+    }
     
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
     {

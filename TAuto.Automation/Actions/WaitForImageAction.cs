@@ -19,40 +19,54 @@ public class WaitForImageAction : ActionBase
     
     // ===== Configuration =====
     
-    /// <summary>
-    /// Optional custom name for this action.
-    /// </summary>
-    public string Name { get; set; } = string.Empty;
+    private string _name = string.Empty;
+    public string Name 
+    { 
+        get => _name; 
+        set => SetProperty(ref _name, value); 
+    }
     
-    /// <summary>
-    /// Path to the template image file.
-    /// </summary>
-    public string TemplatePath { get; set; } = string.Empty;
+    private string _templatePath = string.Empty;
+    public string TemplatePath 
+    { 
+        get => _templatePath; 
+        set => SetProperty(ref _templatePath, value); 
+    }
     
-    /// <summary>
-    /// Matching threshold (0.0 - 1.0). Higher = stricter.
-    /// </summary>
-    public double Threshold { get; set; } = 0.8;
+    private double _threshold = 0.8;
+    public double Threshold 
+    { 
+        get => _threshold; 
+        set => SetProperty(ref _threshold, value); 
+    }
     
-    /// <summary>
-    /// Timeout in milliseconds to wait for image.
-    /// </summary>
-    public int TimeoutMs { get; set; } = 10000;
+    private int _timeoutMs = 10000;
+    public int TimeoutMs 
+    { 
+        get => _timeoutMs; 
+        set => SetProperty(ref _timeoutMs, value); 
+    }
     
-    // Note: ActionBase has RetryIntervalMs, but this is for finding logic.
-    // Keeping this prop to be explicit or we can map it.
-    public int RetryInterval { get; set; } = 500;
+    private int _retryInterval = 500;
+    public int RetryInterval 
+    { 
+        get => _retryInterval; 
+        set => SetProperty(ref _retryInterval, value); 
+    }
     
-    /// <summary>
-    /// If true, action fails when timeout is reached.
-    /// If false, action succeeds but stores false in result variable.
-    /// </summary>
-    public bool FailOnTimeout { get; set; } = true;
+    private bool _failOnTimeout = true;
+    public bool FailOnTimeout 
+    { 
+        get => _failOnTimeout; 
+        set => SetProperty(ref _failOnTimeout, value); 
+    }
     
-    /// <summary>
-    /// Variable name to store "found" (true/false) result.
-    /// </summary>
-    public string ResultVariableName { get; set; } = string.Empty;
+    private string _resultVariableName = string.Empty;
+    public string ResultVariableName 
+    { 
+        get => _resultVariableName; 
+        set => SetProperty(ref _resultVariableName, value); 
+    }
     
     // ===== Execute =====
     
