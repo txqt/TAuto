@@ -1,5 +1,6 @@
 ﻿using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
+using TAuto.Core.Models;
 
 namespace TAuto.Core;
 
@@ -13,6 +14,11 @@ public interface IDeviceController
     /// Unique identifier for target (device serial, window handle, URL)
     /// </summary>
     string TargetId { get; set; }
+    
+    /// <summary>
+    /// The current input mode of the device (e.g., touch, mouse).
+    /// </summary>
+    DeviceInputMode InputMode { get; set; }
     
     /// <summary>
     /// Screen dimensions of current target
