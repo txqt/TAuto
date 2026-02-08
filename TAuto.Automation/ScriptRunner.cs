@@ -271,24 +271,25 @@ public class ScriptRunner
     {
         try 
         {
-            // Implementation depends on where screenshots go. 
-            // Using context to capture.
             if (!string.IsNullOrEmpty(ErrorPolicy.ScreenshotDirectory))
             {
                 string filename = $"Error_{DateTime.Now:yyyyMMdd_HHmmss}.png";
                 string path = System.IO.Path.Combine(ErrorPolicy.ScreenshotDirectory, filename);
                 System.IO.Directory.CreateDirectory(ErrorPolicy.ScreenshotDirectory);
                 
-                // We need to access the bitmap from context implementation
-                // For now, trigger a capture if needed
                  await context.UpdateScreenCaptureAsync(force: false); // Use last if available
                  if (context.LastScreenCapture != null)
                  {
-                     // Save logic - BitmapSource to File?
-                     // Verify thread access or use helper
-                     // context doesn't expose Save currently.
-                     // Skipping actual file write for now unless we add helper.
-                     Log($"📸 [Would Save Screenshot] to {path}");
+                     // Save logic - BitmapSource to File
+                     var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                     encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(context.LastScreenCapture));
+
+                     using (var stream = new System.IO.FileStream(path, System.IO.FileMode.Create))
+                     {
+                         encoder.Save(stream);
+                     }
+                     
+                     Log($"📸 Saved Error Screenshot to {path}");
                  }
             }
         }
