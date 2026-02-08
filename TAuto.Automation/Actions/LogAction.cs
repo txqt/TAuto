@@ -21,6 +21,9 @@ public class LogAction : ActionBase
         // Interpolate variables: "Hello {Name}" -> "Hello World"
         string processedMessage = ReplaceVariables(Message, context);
         
+        // Log to context logger if available
+        context.Logger?.Info(processedMessage);
+        
         return Task.FromResult(ActionResult.Ok(processedMessage));
     }
     

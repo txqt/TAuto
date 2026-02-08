@@ -57,7 +57,8 @@ public class FindImageAction : ActionBase
             return ActionResult.Fail("Template path not set");
         
         // Load template
-        BitmapSource? template = context.Vision.LoadTemplate(TemplatePath);
+        string? baseDir = context.GetString("BaseDirectory");
+        BitmapSource? template = context.Vision.LoadTemplate(TemplatePath, baseDir);
         if (template == null)
             return ActionResult.Fail($"Cannot load template: {TemplatePath}");
         

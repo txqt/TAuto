@@ -15,7 +15,7 @@ public interface IVisionService
     /// <summary>
     /// Load template from file path
     /// </summary>
-    BitmapSource? LoadTemplate(string path);
+    BitmapSource? LoadTemplate(string path, string? baseDirectory = null);
     
     /// <summary>
     /// Save image as template

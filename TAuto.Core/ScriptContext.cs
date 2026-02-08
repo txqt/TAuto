@@ -48,11 +48,14 @@ public class ScriptContext
     /// </summary>
     public string? JumpToId { get; set; }
     
-    public ScriptContext(IDeviceController device, IVisionService vision, IOcrService ocr)
+    public ILoggerService? Logger { get; }
+    
+    public ScriptContext(IDeviceController device, IVisionService vision, IOcrService ocr, ILoggerService? logger = null)
     {
         Device = device ?? throw new ArgumentNullException(nameof(device));
         Vision = vision ?? throw new ArgumentNullException(nameof(vision));
         Ocr = ocr ?? throw new ArgumentNullException(nameof(ocr));
+        Logger = logger;
     }
     
     public async Task<bool> UpdateScreenCaptureAsync(bool force = false)

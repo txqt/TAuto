@@ -64,7 +64,8 @@ public abstract class BotBase
         if (Context.LastScreenCapture == null) return null;
 
         // Load template
-        var template = Context.Vision.LoadTemplate(templatePath);
+        string? baseDir = Context.GetString("BaseDirectory");
+        var template = Context.Vision.LoadTemplate(templatePath, baseDir);
         if (template == null)
         {
             Log($"Warning: Template not found at path '{templatePath}'");
@@ -129,8 +130,11 @@ public abstract class BotBase
         }
     }
 
+    public static event Action<string>? OnLogReceived;
+
     protected void Log(string message)
     {
+        OnLogReceived?.Invoke(message);
         Console.WriteLine($"[Bot] {message}");
     }
 
