@@ -44,4 +44,14 @@ public interface IDeviceController
     /// Check if target is available/connected
     /// </summary>
     Task<bool> IsAvailableAsync();
+
+    /// <summary>
+    /// Send a key press event (e.g., Key.Enter, Key.Space, "A")
+    /// </summary>
+    Task<bool> SendKeyAsync(string key);
+
+    /// <summary>
+    /// Send text input (typing)
+    /// </summary>
+    Task<bool> SendTextAsync(string text);
 }
