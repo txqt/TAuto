@@ -26,24 +26,33 @@ An asynchronous, non-blocking execution engine optimized for low-latency automat
 - **Execution Tracing**: Real-time performance metrics and visit counts for every state and transition.
 - **Validation Suite**: Built-in tools to detect unreachable states, infinite loops, and missing targets before execution.
 
+## 🏗️ Plug-and-Play Architecture
+
+TAuto is designed as a **pure logic engine**. It does not include built-in drivers for screen capture or input injection. Instead, it defines clean high-level interfaces that you must implement for your specific platform:
+
+- **`IDeviceController`**: Implement this to handle `Tap`, `Swipe`, and `Screenshot` logic (e.g., using ADB, Selenium, or Win32 API).
+- **`IVisionService`**: Implement this to provide image matching capabilities (e.g., using OpenCV).
+- **`IOcrService`**: Implement this for text recognition (e.g., using Tesseract).
+
+---
+
 ## 🚀 Quick Start
 
 ### 1. Basic Script Runner
-Execute a linear sequence of actions.
+To run a script, provide your implementations of the core interfaces.
 
 ```csharp
 using TAuto.Automation;
 using TAuto.Automation.Actions;
 using TAuto.Core;
 
-// 1. Setup controllers & services
-IDeviceController device = new AdbDeviceController("emulator-5554");
-IVisionService vision = new OpenCVVisionService();
-IOcrService ocr = new TesseractOcrService();
+// 1. Setup your custom implementations
+IDeviceController device = new YourCustomDeviceController();
+IVisionService vision = new YourCustomVisionService();
 ILoggerService logger = new ConsoleLogger();
 
 // 2. Initialize Context
-var context = new ScriptContext(device, vision, ocr);
+var context = new ScriptContext(device, vision);
 
 // 3. Define Actions
 var actions = new List<IAction>
@@ -90,13 +99,12 @@ sm.Machine.States.Add(searchState);
 
 // Run with metrics tracking
 var result = await sm.ExecuteAsync(context, CancellationToken.None);
-Console.WriteLine($"State visited {sm.Machine.Metrics.GetMetrics("Search").VisitCount} times.");
 ```
 
-## Architecture
-TAuto is split into:
-- **TAuto.Core**: Interfaces, Models, and Base types.
-- **TAuto.Automation**: Implementation of the Engine, Actions, and Services.
+## 🏗️ Architecture
+TAuto is split into two core modules:
+- **TAuto.Core**: Contains the shared interfaces (`IAction`, `IDeviceController`, etc.) and the data models.
+- **TAuto.Automation**: Contains the `ScriptRunner`, `StateMachine` implementation, and standard action types.
 
 ## 📚 Documentation & Community
 - **[Contributing](./CONTRIBUTING.md)**: How to help improve the engine.
