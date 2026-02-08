@@ -8,6 +8,7 @@ public class DeviceInfo
     public string Serial { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string Model { get; set; } = string.Empty;
+    public string Platform { get; set; } = string.Empty;
     
     public string DisplayName => string.IsNullOrEmpty(Model) ? Serial : $"{Model} ({Serial})";
     
