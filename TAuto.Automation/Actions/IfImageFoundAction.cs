@@ -116,7 +116,7 @@ public class IfImageFoundAction : ActionBase
             {
                 return ActionResult.Jump(ElseActionId);
             }
-            return ActionResult.Ok(); // Continue sequentially
+            return ActionResult.Fail("Image not found"); // False for StateMachine
         }
     }
 }

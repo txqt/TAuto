@@ -97,6 +97,17 @@ public class ClickImageAction : ActionBase
         get => _retryInterval; 
         set => SetProperty(ref _retryInterval, value); 
     }
+
+    private int _delayAfterMs = 500;
+    /// <summary>
+    /// Delay in milliseconds to wait AFTER a successful click.
+    /// Useful for letting UI animations finish.
+    /// </summary>
+    public int DelayAfterMs 
+    { 
+        get => _delayAfterMs; 
+        set => SetProperty(ref _delayAfterMs, value); 
+    }
     
     // ===== Execute =====
     
@@ -170,6 +181,11 @@ public class ClickImageAction : ActionBase
         
         // Perform tap
         bool success = await context.Device.TapAsync(tapX, tapY);
+        
+        if (success && DelayAfterMs > 0)
+        {
+            await Task.Delay(DelayAfterMs, ct);
+        }
         
         return success
             ? ActionResult.Ok(matchResult.CenterLocation)
