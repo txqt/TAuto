@@ -2,6 +2,17 @@
 
 All notable changes to the **TAuto Engine** will be documented in this file.
 
+## [Unreleased] - 2026-02-08
+### Added
+- **Phase 1: Hybrid Polling**: Implementation of `Fast`/`Slow` intervals and `SemaphoreSlim` wake-up logic.
+- **Phase 2: Event-Driven Transitions**: Added `EventTransition` and `RaiseEvent` system for <1ms response times.
+- **Phase 3: Robustness**: Per-transition `TimeoutMs` and `MaxRetries`.
+- **Phase 4: Composite Logic**: Support for `AND`, `OR`, `NOT` logic in state transitions.
+- **Phase 5: Performance Metrics**: Execution tracing, visit counts, and polling efficiency tracking.
+- **Validation Engine**: Real-time detection of unreachable states and logic errors.
+- **New Actions**: Added `SwipeAction`, `TypeAction`, and `LogAction` with variable interpolation.
+- **OCR Integration**: Enhanced `IVisionService` with Tesseract support.
+
 ## [Unreleased] - 2026-01-12
 ### Added
 - Expanded `Usage Examples` in `README.md` with detailed code snippets for `ScriptRunner` and `StateMachine`.

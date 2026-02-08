@@ -8,23 +8,23 @@
 ## 🚀 Purpose
 TAuto is designed for developers who need a powerful automation core to integrate into their own applications, whether they are console tools, background services, or custom UI frameworks. It abstracts away the complexity of state management and platform interaction.
 
-## Key Features
+### 1. Hybrid State Machine
+A professional-grade state machine engine that balances performance and responsiveness.
+- **Hybrid Polling**: Dynamically switches between fast (50ms) and slow (500ms) polling based on activity.
+- **Event-Driven Transitions**: Respond to signals in <1ms without waiting for the next poll cycle.
+- **Composite Logic**: Build complex transitions using **AND**, **OR**, and **NOT** operators.
+- **Timing & Retries**: Per-transition timeouts and max retry limits for robust failure recovery.
 
-### 1. State Machine
-A robust state machine implementation that allows for complex logic flows, transition management, and error handling.
-- **States**: Define discrete states in your automation flow.
-- **Transitions**: Control flow between states based on conditions (Image, Text, Variable).
-- **Actions**: Execute actions on entry, exit, or periodically within a state.
+### 2. High-Performance Runner
+An asynchronous, non-blocking execution engine optimized for low-latency automation.
+- **Thread Safety**: Built on `SemaphoreSlim` and `CancellationToken` for robust execution control.
+- **Polymorphic Serialization**: Custom JSON converters for complex, nested action structures.
 
-### 2. Script Runner
-An efficient script runner capable of executing linear and branching automation scripts. Support for loops, conditionals, and variables.
-
-### 3. Logic Actions
-A rich set of predefined actions:
-- **Interaction**: Tap, Swipe, Click, Input.
-- **Decision**: If Image/Text/Variable.
-- **Control**: Loop, Delay, Stop, Goto.
-- **Variables**: Set, Modify, Compare variables dynamically.
+### 3. Comprehensive Feature Set
+- **Rich Interaction**: Humanized Tap, Swipe, Type, and multi-point gestures.
+- **Vision & OCR**: Native integration with OpenCV and Tesseract.
+- **Execution Tracing**: Real-time performance metrics and visit counts for every state and transition.
+- **Validation Suite**: Built-in tools to detect unreachable states, infinite loops, and missing targets before execution.
 
 ## 🚀 Quick Start
 
@@ -64,23 +64,33 @@ Manage complex automation with states and dynamic transitions.
 ```csharp
 var sm = new StateMachineAction();
 
-// Define states
-var idleState = new State { Name = "Idle" };
-var activeState = new State { Name = "Active" };
-
-// Add transitions
-idleState.Transitions.Add(new StateTransition 
+var searchState = new State 
 { 
-    TargetState = "Active", 
-    Type = TransitionType.Image,
-    ConditionValue = "start_button.png" 
+    Name = "Search",
+    FastCheckIntervalMs = 50,
+    SlowCheckIntervalMs = 1000 
+};
+
+// Add an event-driven transition (responsive <1ms)
+searchState.Transitions.Add(new EventTransition 
+{ 
+    ToState = "Combat", 
+    EventName = "EnemySpotted",
+    Priority = 10
 });
 
-sm.States.Add(idleState);
-sm.States.Add(activeState);
+// Add a vision-based polling transition
+searchState.Transitions.Add(new StateTransition 
+{ 
+    ToState = "Victory", 
+    Condition = new IfImageFoundAction { TemplatePath = "victory.png" }
+});
 
-// Run within a script runner or standalone
-await sm.ExecuteAsync(context, CancellationToken.None);
+sm.Machine.States.Add(searchState);
+
+// Run with metrics tracking
+var result = await sm.ExecuteAsync(context, CancellationToken.None);
+Console.WriteLine($"State visited {sm.Machine.Metrics.GetMetrics("Search").VisitCount} times.");
 ```
 
 ## Architecture
