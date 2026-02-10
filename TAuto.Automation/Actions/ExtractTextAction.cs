@@ -92,7 +92,7 @@ public class ExtractTextAction : ActionBase
             return ActionResult.Fail("OCR Service not available");
 
         // 1. Capture Screen
-        await context.UpdateScreenCaptureAsync();
+        await context.UpdateScreenCaptureAsync(force: true);
         if (context.LastScreenCapture == null)
             return ActionResult.Fail("Failed to capture screen");
 
