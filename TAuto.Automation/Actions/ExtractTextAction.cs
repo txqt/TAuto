@@ -51,6 +51,29 @@ public class ExtractTextAction : ActionBase
     /// </summary>
     public bool LogResult { get; set; } = true;
 
+    /// <summary>
+    /// Binary threshold (0-255). 0 = disabled. Typical: 100-180.
+    /// When > 0, enables full preprocessing: Resize + Grayscale + Threshold + Border.
+    /// </summary>
+    public int Threshold { get; set; } = 0;
+
+    /// <summary>
+    /// If true, invert colors before thresholding (use for light text on dark background).
+    /// </summary>
+    public bool Invert { get; set; } = false;
+
+    /// <summary>
+    /// Border pixels to add around text (helps Tesseract with edge characters). Default: 12.
+    /// </summary>
+    public int BorderSize { get; set; } = 12;
+
+    /// <summary>
+    /// Tesseract Page Segmentation Mode.
+    /// 3 = Fully automatic (default), 7 = Single text line, 8 = Single word.
+    /// Use PSM 7 for individual number fields for best accuracy.
+    /// </summary>
+    public int PageSegMode { get; set; } = 3;
+
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
     {
         if (context.Ocr == null)
@@ -88,7 +111,7 @@ public class ExtractTextAction : ActionBase
         try
         {
             // Pass Scale and Whitelist to OCR service
-            string text = context.Ocr.GetText(source, Language, Scale, Whitelist);
+            string text = context.Ocr.GetText(source, Language, Scale, Whitelist, Threshold, Invert, BorderSize, PageSegMode);
             
             if (Trim && text != null)
                 text = text.Trim();
