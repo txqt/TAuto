@@ -37,6 +37,16 @@ public class ExtractTextAction : ActionBase
     public bool Trim { get; set; } = true;
 
     /// <summary>
+    /// Scale factor for image pre-processing (default 1.0).
+    /// </summary>
+    public double Scale { get; set; } = 1.0;
+
+    /// <summary>
+    /// Optional whitelist of allowed characters (e.g. "0123456789").
+    /// </summary>
+    public string Whitelist { get; set; }
+
+    /// <summary>
     /// Optional: Log the extracted text automatically.
     /// </summary>
     public bool LogResult { get; set; } = true;
@@ -77,7 +87,8 @@ public class ExtractTextAction : ActionBase
         // 3. Perform OCR
         try
         {
-            string text = context.Ocr.GetText(source, Language);
+            // Pass Scale and Whitelist to OCR service
+            string text = context.Ocr.GetText(source, Language, Scale, Whitelist);
             
             if (Trim && text != null)
                 text = text.Trim();
