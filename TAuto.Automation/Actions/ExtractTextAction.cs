@@ -74,6 +74,18 @@ public class ExtractTextAction : ActionBase
     /// </summary>
     public int PageSegMode { get; set; } = 3;
 
+    /// <summary>
+    /// If true, run OCR at multiple thresholds and pick the majority result (voting).
+    /// Best for numeric fields where single-digit errors are common.
+    /// </summary>
+    public bool UseVoting { get; set; } = false;
+
+    /// <summary>
+    /// If true, use contour-based digit segmentation to split merged digits before OCR.
+    /// Solves the "77 → 7" problem at low resolutions.
+    /// </summary>
+    public bool UseSegmentation { get; set; } = false;
+
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
     {
         if (context.Ocr == null)
@@ -110,8 +122,20 @@ public class ExtractTextAction : ActionBase
         // 3. Perform OCR
         try
         {
-            // Pass Scale and Whitelist to OCR service
-            string text = context.Ocr.GetText(source, Language, Scale, Whitelist, Threshold, Invert, BorderSize, PageSegMode);
+            // Route to the appropriate OCR method based on flags
+            string text;
+            if (UseVoting)
+            {
+                text = context.Ocr.GetTextWithVoting(source, Language, Scale, Whitelist, Threshold > 0 ? Threshold : 150, Invert, BorderSize, PageSegMode);
+            }
+            else if (UseSegmentation)
+            {
+                text = context.Ocr.GetTextWithSegmentation(source, Language, Scale, Whitelist, Threshold > 0 ? Threshold : 150, Invert, BorderSize, PageSegMode);
+            }
+            else
+            {
+                text = context.Ocr.GetText(source, Language, Scale, Whitelist, Threshold, Invert, BorderSize, PageSegMode);
+            }
             
             if (Trim && text != null)
                 text = text.Trim();
