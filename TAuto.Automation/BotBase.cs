@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using TAuto.Core;
 using TAuto.Automation.Actions;
+using TAuto.Automation.BotSystem;
 
 namespace TAuto.Automation;
 
@@ -15,11 +17,46 @@ public abstract class BotBase
     public ScriptContext Context { get; private set; } = null!;
     public CancellationToken CancellationToken { get; private set; }
 
+    /// <summary>
+    /// User-supplied argument values, populated by the host before RunAsync.
+    /// </summary>
+    public Dictionary<string, object> Arguments { get; private set; } = new();
+
     public void Initialize(ScriptContext context, CancellationToken token)
     {
         Context = context;
         CancellationToken = token;
     }
+
+    /// <summary>
+    /// Sets the argument values from the host (UI form or CLI).
+    /// </summary>
+    public void SetArguments(Dictionary<string, object> args)
+    {
+        Arguments = args ?? new();
+    }
+
+    /// <summary>
+    /// Override to declare the bot's configuration: name, description,
+    /// run mode (Standard/CustomUI/CLI), and configurable arguments.
+    /// Returns null by default (Standard mode, no arguments).
+    /// </summary>
+    public virtual BotConfiguration? GetConfiguration() => null;
+
+    /// <summary>
+    /// Called by the host when RunMode is CustomUI, right before RunAsync.
+    /// Override to create and show a custom WPF Window.
+    /// The host passes itself so the bot can interact with it.
+    /// </summary>
+    /// <returns>The Window or UserControl to display. Null to skip.</returns>
+    public virtual object? OnCreateUI() => null;
+
+    /// <summary>
+    /// Called by the host when RunMode is CLI, right before RunAsync.
+    /// Override to write console-based UI (e.g. menus, progress bars).
+    /// A console window will already be allocated by the host.
+    /// </summary>
+    public virtual void OnCreateConsole() { }
 
     public abstract Task RunAsync();
 
@@ -152,6 +189,28 @@ public abstract class BotBase
     {
         CancellationToken.ThrowIfCancellationRequested();
     }
+
+    #endregion
+
+    #region Helper Methods - Arguments
+
+    /// <summary>
+    /// Gets an argument value by name, with a default fallback.
+    /// </summary>
+    protected T GetArg<T>(string name, T defaultValue = default!)
+    {
+        if (Arguments.TryGetValue(name, out var value))
+        {
+            try { return (T)Convert.ChangeType(value, typeof(T)); }
+            catch { return defaultValue; }
+        }
+        return defaultValue;
+    }
+
+    protected string GetArgString(string name, string defaultValue = "") => GetArg(name, defaultValue);
+    protected int GetArgInt(string name, int defaultValue = 0) => GetArg(name, defaultValue);
+    protected bool GetArgBool(string name, bool defaultValue = false) => GetArg(name, defaultValue);
+    protected double GetArgDouble(string name, double defaultValue = 0.0) => GetArg(name, defaultValue);
 
     #endregion
 }
