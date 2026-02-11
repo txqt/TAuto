@@ -86,6 +86,12 @@ public class ExtractTextAction : ActionBase
     /// </summary>
     public bool UseSegmentation { get; set; } = false;
 
+    /// <summary>
+    /// If set to a directory path, saves debug images (full screenshot + cropped region) there.
+    /// Useful for verifying coordinate accuracy.
+    /// </summary>
+    public string DebugSavePath { get; set; }
+
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
     {
         if (context.Ocr == null)
@@ -112,6 +118,21 @@ public class ExtractTextAction : ActionBase
                     return ActionResult.Fail("Invalid crop region");
 
                 source = new CroppedBitmap(source, new Int32Rect(rawX, rawY, Width, Height));
+
+                // Debug: save images to verify coordinates
+                if (!string.IsNullOrEmpty(DebugSavePath))
+                {
+                    try
+                    {
+                        System.IO.Directory.CreateDirectory(DebugSavePath);
+                        var ts = DateTime.Now.ToString("HHmmss");
+                        // Save full screenshot
+                        SaveBitmapSource(context.LastScreenCapture, System.IO.Path.Combine(DebugSavePath, $"{ts}_{OutputVariable}_full_{context.LastScreenCapture.PixelWidth}x{context.LastScreenCapture.PixelHeight}.png"));
+                        // Save cropped region
+                        SaveBitmapSource(source, System.IO.Path.Combine(DebugSavePath, $"{ts}_{OutputVariable}_crop_{rawX},{rawY}_{Width}x{Height}.png"));
+                    }
+                    catch { /* ignore debug save errors */ }
+                }
             }
             catch (Exception ex)
             {
@@ -152,5 +173,13 @@ public class ExtractTextAction : ActionBase
         {
             return ActionResult.Fail($"OCR failed: {ex.Message}");
         }
+    }
+
+    private static void SaveBitmapSource(BitmapSource bmp, string path)
+    {
+        using var fs = new System.IO.FileStream(path, System.IO.FileMode.Create);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bmp));
+        encoder.Save(fs);
     }
 }
