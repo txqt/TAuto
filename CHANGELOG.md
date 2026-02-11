@@ -2,6 +2,13 @@
 
 All notable changes to the **TAuto Engine** will be documented in this file.
 
+## [Unreleased] - 2026-02-11
+### Added
+- **Vision Enhancements**:
+    - **Otsu Thresholding**: Replaced fixed threshold with adaptive Otsu algorithm for better segmentation.
+    - **Auto-Polarity**: Automatic detection of light/dark text.
+    - **Multi-Scale Voting**: Improved OCR accuracy for small fonts by voting across multiple scales.
+
 ## [Unreleased] - 2026-02-08
 ### Added
 - **Phase 1: Hybrid Polling**: Implementation of `Fast`/`Slow` intervals and `SemaphoreSlim` wake-up logic.
