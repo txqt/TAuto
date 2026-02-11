@@ -49,10 +49,11 @@ using TAuto.Core;
 // 1. Setup your custom implementations
 IDeviceController device = new YourCustomDeviceController();
 IVisionService vision = new YourCustomVisionService();
+IOcrService ocr = new YourCustomOcrService();
 ILoggerService logger = new ConsoleLogger();
 
 // 2. Initialize Context
-var context = new ScriptContext(device, vision);
+var context = new ScriptContext(device, vision, ocr);
 
 // 3. Define Actions
 var actions = new List<IAction>
