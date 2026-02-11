@@ -7,6 +7,7 @@
         <UseWPF>true</UseWPF>
         <RootNamespace>TAuto.Automation</RootNamespace>
         <AssemblyName>TAuto.Automation</AssemblyName>
+        <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     </PropertyGroup>
 
     <ItemGroup>
