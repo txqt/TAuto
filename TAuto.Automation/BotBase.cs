@@ -22,6 +22,11 @@ public abstract class BotBase
     /// </summary>
     public Dictionary<string, object> Arguments { get; private set; } = new();
 
+    private volatile TaskCompletionSource<bool>? _pauseSignal;
+    public event Action<bool>? OnPausedStateChanged;
+
+    public bool IsPaused => _pauseSignal != null;
+
     public void Initialize(ScriptContext context, CancellationToken token)
     {
         Context = context;
@@ -57,6 +62,117 @@ public abstract class BotBase
     /// A console window will already be allocated by the host.
     /// </summary>
     public virtual void OnCreateConsole() { }
+
+    /// <summary>
+    /// Displays an interactive menu in the console.
+    /// Returns the index of the selected option.
+    /// </summary>
+    public virtual Task<int> ShowMenu(string title, params string[] options)
+    {
+        if (options == null || options.Length == 0) return Task.FromResult(-1);
+
+        // Check if we are in a Console environment
+        // Simple check: Console.WindowHeight throws if no console
+        try
+        {
+            var _ = Console.WindowHeight;
+        }
+        catch
+        {
+            // Not a console app or no console attached
+            Log("ShowMenu called but no Console available. Returning default 0.");
+            return Task.FromResult(0); 
+        }
+
+        return Task.Run(() =>
+        {
+            int selectedIndex = 0;
+            bool done = false;
+
+            // Hide cursor
+            try { Console.CursorVisible = false; } catch { }
+
+            while (!done)
+            {
+                Console.Clear();
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"=== {title} ===");
+                Console.ResetColor();
+                Console.WriteLine("Use ↑/↓ to navigate, Enter to select.\n");
+
+                for (int i = 0; i < options.Length; i++)
+                {
+                    if (i == selectedIndex)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        Console.WriteLine($" > {options[i]}");
+                        Console.ResetColor();
+                    }
+                    else
+                    {
+                        Console.WriteLine($"   {options[i]}");
+                    }
+                }
+
+                var key = Console.ReadKey(true).Key;
+                switch (key)
+                {
+                    case ConsoleKey.UpArrow:
+                        selectedIndex--;
+                        if (selectedIndex < 0) selectedIndex = options.Length - 1;
+                        break;
+                    case ConsoleKey.DownArrow:
+                        selectedIndex++;
+                        if (selectedIndex >= options.Length) selectedIndex = 0;
+                        break;
+                    case ConsoleKey.Enter:
+                        done = true;
+                        break;
+                }
+            }
+
+            try { Console.CursorVisible = true; } catch { }
+            Console.Clear(); // Clear menu after selection
+            
+            Log($"Menu selection: {options[selectedIndex]}");
+            return selectedIndex;
+        });
+    }
+
+    /// <summary>
+    /// Pauses the bot execution.
+    /// </summary>
+    public void Pause()
+    {
+        if (_pauseSignal == null || _pauseSignal.Task.IsCompleted)
+        {
+            _pauseSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            OnPausedStateChanged?.Invoke(true);
+            Log("Bot paused.");
+        }
+    }
+
+    /// <summary>
+    /// Resumes the bot execution.
+    /// </summary>
+    public void Resume()
+    {
+        if (_pauseSignal != null)
+        {
+            _pauseSignal.TrySetResult(true);
+            _pauseSignal = null;
+            OnPausedStateChanged?.Invoke(false);
+            Log("Bot resumed.");
+        }
+    }
+
+    protected async Task CheckPaused()
+    {
+        if (_pauseSignal != null)
+        {
+            await _pauseSignal.Task;
+        }
+    }
 
     public abstract Task RunAsync();
 
@@ -157,6 +273,8 @@ public abstract class BotBase
     protected async Task Delay(int ms)
     {
         CheckCancelled(); 
+        await CheckPaused(); // Wait if paused
+
         try
         {
             await Task.Delay(ms, CancellationToken);
@@ -165,6 +283,9 @@ public abstract class BotBase
         {
             throw; 
         }
+
+        await CheckPaused(); // Wait again in case we were paused during delay? 
+        // Usually checking before is enough for the next action, but checking after ensures we don't proceed if paused exactly when waking up.
     }
 
     public static event Action<string>? OnLogReceived;
