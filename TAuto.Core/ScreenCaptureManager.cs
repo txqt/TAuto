@@ -6,13 +6,28 @@ namespace TAuto.Core;
 
 /// <summary>
 /// Manages screen capture caching and retrieval.
+/// Thread-safe: captures can be read from UI thread while updated from background.
 /// </summary>
 public class ScreenCaptureManager
 {
     private readonly IDeviceController _device;
+    private readonly object _lock = new();
     
-    public BitmapSource? LastScreenCapture { get; private set; }
-    public DateTime? LastCaptureTime { get; private set; }
+    private BitmapSource? _lastScreenCapture;
+    private DateTime? _lastCaptureTime;
+
+    public BitmapSource? LastScreenCapture 
+    { 
+        get { lock (_lock) { return _lastScreenCapture; } }
+        private set { lock (_lock) { _lastScreenCapture = value; } }
+    }
+    
+    public DateTime? LastCaptureTime 
+    { 
+        get { lock (_lock) { return _lastCaptureTime; } }
+        private set { lock (_lock) { _lastCaptureTime = value; } }
+    }
+    
     public int CaptureIntervalMs { get; set; } = 100;
     public System.Windows.Point? LastFoundImageLocation { get; set; }
 
@@ -44,3 +59,4 @@ public class ScreenCaptureManager
         return false;
     }
 }
+
