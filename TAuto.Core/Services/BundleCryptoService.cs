@@ -7,11 +7,35 @@ namespace TAuto.Core;
 
 /// <summary>
 /// Handles encryption and decryption of bot bundles using AES-256-CBC.
-/// Shared between Developer App (for export) and VibeBot (for execution).
+/// Supports both legacy default key and license-derived PBKDF2 keys.
+/// 
+/// Bundle format: [VBOT header (4 bytes)][IV (16 bytes)][ciphertext]
 /// </summary>
 public static class BundleCryptoService
 {
-    private static byte[] DefaultKey = Encoding.UTF8.GetBytes("VibeBot_AES256_K");
+    private const int Pbkdf2Iterations = 100_000;
+    private const int KeySizeBytes = 32; // AES-256
+    
+    // ========================================
+    // PBKDF2 License-Based Key Derivation
+    // ========================================
+    
+    /// <summary>
+    /// Derive a 256-bit AES key from a license key + server salt using PBKDF2.
+    /// Both client and server use this to encrypt/decrypt bot packages.
+    /// </summary>
+    public static byte[] DeriveKeyFromLicense(string licenseKey, string salt)
+    {
+        var keyBytes = Encoding.UTF8.GetBytes(licenseKey);
+        var saltBytes = Encoding.UTF8.GetBytes(salt);
+        
+        using var pbkdf2 = new Rfc2898DeriveBytes(keyBytes, saltBytes, Pbkdf2Iterations, HashAlgorithmName.SHA256);
+        return pbkdf2.GetBytes(KeySizeBytes);
+    }
+    
+    // ========================================
+    // Encrypt / Decrypt
+    // ========================================
     
     /// <summary>
     /// Decrypt an encrypted bundle.
@@ -38,7 +62,8 @@ public static class BundleCryptoService
         byte[] ciphertext = new byte[encryptedData.Length - 20];
         Array.Copy(encryptedData, 20, ciphertext, 0, ciphertext.Length);
         
-        byte[] actualKey = key ?? GetDefaultKey();
+        byte[] actualKey = key ?? throw new InvalidOperationException(
+            "No encryption key provided. Use DeriveKeyFromLicense() to generate a key.");
         
         using var aes = Aes.Create();
         aes.Key = actualKey;
@@ -55,13 +80,12 @@ public static class BundleCryptoService
     /// <summary>
     /// Encrypt a script JSON to a bundle format.
     /// </summary>
-    public static byte[] Encrypt(string json, byte[]? key = null)
+    public static byte[] Encrypt(string json, byte[] key)
     {
-        byte[] actualKey = key ?? GetDefaultKey();
         byte[] plaintext = Encoding.UTF8.GetBytes(json);
         
         using var aes = Aes.Create();
-        aes.Key = actualKey;
+        aes.Key = key;
         aes.GenerateIV();
         aes.Mode = CipherMode.CBC;
         aes.Padding = PaddingMode.PKCS7;
@@ -76,17 +100,5 @@ public static class BundleCryptoService
         ciphertext.CopyTo(result, 20);
         
         return result;
-    }
-    
-    private static byte[] GetDefaultKey()
-    {
-        using var sha = SHA256.Create();
-        return sha.ComputeHash(DefaultKey);
-    }
-    
-    public static void SetKeyFromString(string keySource)
-    {
-        using var sha = SHA256.Create();
-        DefaultKey = sha.ComputeHash(Encoding.UTF8.GetBytes(keySource));
     }
 }
