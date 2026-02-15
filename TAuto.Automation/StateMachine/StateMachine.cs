@@ -16,6 +16,7 @@ public class StateMachine
     public StateMachine()
     {
         States = new ObservableCollection<State>();
+        GlobalTransitions = new ObservableCollection<StateTransition>();
     }
 
     /// <summary>
@@ -52,6 +53,13 @@ public class StateMachine
     /// Performance metrics for this state machine. Always recorded.
     /// </summary>
     public StateMachineMetrics Metrics { get; } = new();
+
+    /// <summary>
+    /// Global transitions checked in EVERY state before state-specific transitions.
+    /// Use for high-priority interrupts (e.g., "Under Attack", "Disconnected").
+    /// These are evaluated first in the polling loop and can override any state.
+    /// </summary>
+    public ObservableCollection<StateTransition> GlobalTransitions { get; set; }
 
     private State? _currentState;
 
@@ -123,11 +131,19 @@ public class StateMachine
             int consecutiveFailures = 0; // For adaptive polling
             int pollCount = 0;
             
-            // Initialize tracking for all transitions
+            // Initialize tracking for all transitions (state + global)
             foreach (var t in _currentState.Transitions)
             {
                 transitionStartTimes[t] = DateTime.UtcNow;
                 transitionRetryCounts[t] = 0;
+            }
+            foreach (var gt in GlobalTransitions)
+            {
+                if (!transitionStartTimes.ContainsKey(gt))
+                {
+                    transitionStartTimes[gt] = DateTime.UtcNow;
+                    transitionRetryCounts[gt] = 0;
+                }
             }
 
             // Trace: State entered
@@ -145,7 +161,62 @@ public class StateMachine
                     }
                 }
 
-                // Check transitions (sorted by Priority DESC, fallbacks last)
+                // ── GLOBAL TRANSITIONS (highest priority interrupts) ──
+                foreach (var globalTransition in GlobalTransitions.OrderByDescending(t => t.Priority))
+                {
+                    if (ct.IsCancellationRequested) break;
+                    
+                    if (await globalTransition.ShouldTransitionAsync(context, ct))
+                    {
+                        var transitionElapsedMs = (DateTime.UtcNow - stateStartTime).TotalMilliseconds;
+                        
+                        LogTrace("GlobalInterrupt", _currentState.Name, globalTransition.ToState, 
+                            details: "Global transition triggered", pollCount: pollCount, elapsedMs: transitionElapsedMs);
+                        
+                        // Execute Exit Actions of current state
+                        foreach (var exitAction in _currentState.ExitActions)
+                        {
+                            if (ct.IsCancellationRequested) break;
+                            await exitAction.ExecuteAsync(context, ct);
+                        }
+                        
+                        // Handle END state
+                        if (string.Equals(globalTransition.ToState, "END", StringComparison.OrdinalIgnoreCase))
+                        {
+                            foreach (var transitionAction in globalTransition.OnTransitionActions)
+                            {
+                                if (ct.IsCancellationRequested) break;
+                                await transitionAction.ExecuteAsync(context, ct);
+                            }
+                            LogTrace("TransitionTrigger", _currentState.Name, "END", details: "Global interrupt → END", elapsedMs: transitionElapsedMs);
+                            return ActionResult.Ok("State Machine completed (global transition → END).");
+                        }
+                        
+                        // Change state
+                        var nextState = States.FirstOrDefault(s => s.Name == globalTransition.ToState);
+                        if (nextState == null)
+                        {
+                            return ActionResult.Fail($"Global transition target state '{globalTransition.ToState}' not found.");
+                        }
+                        
+                        foreach (var transitionAction in globalTransition.OnTransitionActions)
+                        {
+                            if (ct.IsCancellationRequested) break;
+                            await transitionAction.ExecuteAsync(context, ct);
+                        }
+                        
+                        Metrics.RecordStateTime(_currentState.Name, transitionElapsedMs, pollCount);
+                        Metrics.RecordTransition(_currentState.Name, nextState.Name);
+                        
+                        _currentState = nextState;
+                        transitioned = true;
+                        break;
+                    }
+                }
+                
+                if (transitioned) continue; // Skip state transitions, restart loop with new state
+
+                // ── STATE-SPECIFIC TRANSITIONS (sorted by Priority DESC, fallbacks last) ──
                 var sortedTransitions = _currentState.Transitions
                     .OrderBy(t => t.IsFallback) // Non-fallback first
                     .ThenByDescending(t => t.Priority)
