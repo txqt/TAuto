@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <PackageReference Include="NCrontab" Version="3.4.0" />
+    <ProjectReference Include="..\..\AutoBot.Shared\AutoBot.Shared.csproj" />
   </ItemGroup>
 
 </Project>
