@@ -97,8 +97,14 @@ public class StateTransition
                 var result = await Condition.ExecuteAsync(context, ct);
                 return result.Success;
             }
-            catch
+            catch (OperationCanceledException)
             {
+                return false; // Expected during cancellation
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[StateTransition] Condition failed → Target='{ToState}', Priority={Priority}, Error={ex.Message}");
                 return false;
             }
         }
@@ -116,8 +122,14 @@ public class StateTransition
                     var result = await condition.ExecuteAsync(context, ct);
                     if (!result.Success) return false;
                 }
-                catch
+                catch (OperationCanceledException)
                 {
+                    return false;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[StateTransition] AND condition failed → Target='{ToState}', Priority={Priority}, Error={ex.Message}");
                     return false;
                 }
             }
@@ -134,8 +146,14 @@ public class StateTransition
                     var result = await condition.ExecuteAsync(context, ct);
                     if (result.Success) return true;
                 }
-                catch
+                catch (OperationCanceledException)
                 {
+                    return false;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[StateTransition] OR condition failed → Target='{ToState}', Priority={Priority}, Error={ex.Message}");
                     // Continue to next condition
                 }
             }

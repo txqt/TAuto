@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +15,12 @@ public class ScriptContext
 {
     private readonly ScriptState _state = new();
     private readonly ScreenCaptureManager _captureManager;
+    
+    /// <summary>
+    /// State-scoped local variables. Key = StateName, Value = local variable dictionary.
+    /// Thread-safe: uses ConcurrentDictionary for concurrent access.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, object>> _scopedVariables = new();
     
     // Event for UI to watch variables
     public event EventHandler<VariableChangedEventArgs>? VariableChanged
@@ -43,6 +50,16 @@ public class ScriptContext
         set => _captureManager.CaptureIntervalMs = value;
     }
 
+    /// <summary>
+    /// Hard timeout (ms) for screen capture. Prevents hanging if target window freezes.
+    /// Default 5000ms. Passthrough to ScreenCaptureManager.
+    /// </summary>
+    public int CaptureTimeoutMs
+    {
+        get => _captureManager.CaptureTimeoutMs;
+        set => _captureManager.CaptureTimeoutMs = value;
+    }
+
     public System.Windows.Point? LastFoundImageLocation 
     { 
         get => _captureManager.LastFoundImageLocation;
@@ -53,6 +70,13 @@ public class ScriptContext
     /// Target action ID to jump to. Set by logic actions (If/Goto), consumed by ScriptRunner/StateMachine.
     /// </summary>
     public string? JumpToId { get; set; }
+    
+    /// <summary>
+    /// When true, the StateMachine uses faster polling intervals for sub-100ms reaction.
+    /// Set by actions/bots during time-critical phases (combat, alerts).
+    /// Default: false.
+    /// </summary>
+    public bool IsUrgentMode { get; set; } = false;
     
     public ILoggerService? Logger { get; }
     
@@ -90,6 +114,41 @@ public class ScriptContext
     public IEnumerable<string> GetVariableNames() => _state.GetVariableNames();
     public Dictionary<string, object> GetAllVariables() => _state.GetAllVariables();
     
+    #region Scoped Local Variables
+    
+    /// <summary>
+    /// Set a variable scoped to a specific state. Cleared when state exits.
+    /// </summary>
+    public void SetLocalVariable(string stateName, string key, object value)
+    {
+        var scope = _scopedVariables.GetOrAdd(stateName, _ => new ConcurrentDictionary<string, object>());
+        scope[key] = value;
+    }
+    
+    /// <summary>
+    /// Get a variable scoped to a specific state.
+    /// </summary>
+    public T GetLocalVariable<T>(string stateName, string key, T defaultValue = default!)
+    {
+        if (_scopedVariables.TryGetValue(stateName, out var scope) && scope.TryGetValue(key, out var value))
+        {
+            if (value is T typedValue) return typedValue;
+            try { return (T)Convert.ChangeType(value, typeof(T)); }
+            catch { return defaultValue; }
+        }
+        return defaultValue;
+    }
+    
+    /// <summary>
+    /// Clear all local variables for a specific state. Called on state exit.
+    /// </summary>
+    public void ClearLocalVariables(string stateName)
+    {
+        _scopedVariables.TryRemove(stateName, out _);
+    }
+    
+    #endregion
+    
     #region Event System
     public SemaphoreSlim EventSignal => _state.EventSignal;
     public void RaiseEvent(string name) => _state.RaiseEvent(name);
@@ -98,3 +157,4 @@ public class ScriptContext
     public bool HasEvent(string name) => _state.HasEvent(name);
     #endregion
 }
+

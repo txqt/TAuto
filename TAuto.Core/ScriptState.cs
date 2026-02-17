@@ -1,66 +1,50 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 
 namespace TAuto.Core;
 
 /// <summary>
 /// Manages the execution state of a script, including variables and events.
+/// Thread-safe: uses ConcurrentDictionary for lock-free reads (high-frequency polling).
 /// </summary>
 public class ScriptState
 {
-    private readonly Dictionary<string, object> _variables = new();
-    private readonly object _lock = new();
-    
+    private readonly ConcurrentDictionary<string, object> _variables = new();
+    private readonly ConcurrentDictionary<string, byte> _raisedEvents = new();
+    private readonly SemaphoreSlim _eventSignal = new(0);
+
     // Event for UI to watch variables
     public event EventHandler<VariableChangedEventArgs>? VariableChanged;
 
-    #region Event System
-    private readonly HashSet<string> _raisedEvents = new();
-    private readonly SemaphoreSlim _eventSignal = new(0); 
-
     public SemaphoreSlim EventSignal => _eventSignal;
-    #endregion
+
+    #region Variables (Lock-Free)
 
     public T GetVariable<T>(string name, T defaultValue = default!)
     {
-        lock (_lock)
+        if (_variables.TryGetValue(name, out var value))
         {
-            if (_variables.TryGetValue(name, out var value))
-            {
-                if (value is T typedValue) return typedValue;
-                try { return (T)Convert.ChangeType(value, typeof(T)); }
-                catch { return defaultValue; }
-            }
-            return defaultValue;
+            if (value is T typedValue) return typedValue;
+            try { return (T)Convert.ChangeType(value, typeof(T)); }
+            catch { return defaultValue; }
         }
+        return defaultValue;
     }
 
     public void SetVariable(string name, object value)
     {
-        lock (_lock)
-        {
-            _variables[name] = value;
-        }
+        _variables[name] = value;
         VariableChanged?.Invoke(this, new VariableChangedEventArgs(name, value));
     }
 
-    public bool HasVariable(string name)
-    {
-        lock (_lock)
-        {
-            return _variables.ContainsKey(name);
-        }
-    }
+    public bool HasVariable(string name) => _variables.ContainsKey(name);
 
     public bool RemoveVariable(string name)
     {
-        bool removed;
-        lock (_lock)
-        {
-            removed = _variables.Remove(name);
-        }
-        
+        bool removed = _variables.TryRemove(name, out _);
         if (removed)
             VariableChanged?.Invoke(this, new VariableChangedEventArgs(name, null));
         return removed;
@@ -68,47 +52,29 @@ public class ScriptState
 
     public void ClearVariables()
     {
-        lock (_lock)
-        {
-            _variables.Clear();
-        }
+        _variables.Clear();
         VariableChanged?.Invoke(this, new VariableChangedEventArgs("*", null));
     }
 
-    public IEnumerable<string> GetVariableNames() 
-    {
-        lock (_lock)
-        {
-            return new List<string>(_variables.Keys); 
-        }
-    }
-    
-    public Dictionary<string, object> GetAllVariables()
-    {
-        lock (_lock)
-        {
-            return new Dictionary<string, object>(_variables);
-        }
-    }
+    public IEnumerable<string> GetVariableNames() => _variables.Keys.ToList();
 
-    public void RaiseEvent(string name) 
-    { 
-        lock (_lock) { _raisedEvents.Add(name); }
+    public Dictionary<string, object> GetAllVariables() => new(_variables);
+
+    #endregion
+
+    #region Event System (Lock-Free)
+
+    public void RaiseEvent(string name)
+    {
+        _raisedEvents.TryAdd(name, 0);
         try { _eventSignal.Release(); } catch (SemaphoreFullException) { /* ignore */ }
     }
 
-    public bool ConsumeEvent(string name) 
-    { 
-        lock (_lock) { return _raisedEvents.Remove(name); } 
-    }
+    public bool ConsumeEvent(string name) => _raisedEvents.TryRemove(name, out _);
 
-    public void ClearEvents() 
-    { 
-        lock (_lock) { _raisedEvents.Clear(); } 
-    }
+    public void ClearEvents() => _raisedEvents.Clear();
 
-    public bool HasEvent(string name)
-    {
-        lock (_lock) { return _raisedEvents.Contains(name); }
-    }
+    public bool HasEvent(string name) => _raisedEvents.ContainsKey(name);
+
+    #endregion
 }
