@@ -54,4 +54,16 @@ public interface IDeviceController
     /// Send text input (typing)
     /// </summary>
     Task<bool> SendTextAsync(string text);
+
+    /// <summary>
+    /// Launch an application by package name (Android) or executable path (Windows).
+    /// Returns true if launch succeeded.
+    /// </summary>
+    Task<bool> LaunchAppAsync(string packageOrPath) => Task.FromResult(false);
+
+    /// <summary>
+    /// Force-stop an application by package name (Android) or process name (Windows).
+    /// Returns true if stop succeeded.
+    /// </summary>
+    Task<bool> ForceStopAppAsync(string packageOrName) => Task.FromResult(false);
 }
