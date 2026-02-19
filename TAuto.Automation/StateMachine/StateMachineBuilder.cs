@@ -49,23 +49,6 @@ public class StateMachineBuilder
         return this;
     }
 
-    /// <summary>
-    /// Set the global monitor interval in milliseconds.
-    /// </summary>
-    public StateMachineBuilder MonitorInterval(int ms)
-    {
-        _machine.MonitorIntervalMs = ms;
-        return this;
-    }
-
-    /// <summary>
-    /// Set the interrupt timeout in milliseconds.
-    /// </summary>
-    public StateMachineBuilder InterruptTimeout(int ms)
-    {
-        _machine.InterruptTimeoutMs = ms;
-        return this;
-    }
 
     // ════════════════════════════════════════════════════════════
     // State Definition
@@ -82,15 +65,7 @@ public class StateMachineBuilder
         return this;
     }
 
-    /// <summary>
-    /// Set the current state as non-interruptible (won't respond to global transitions mid-action).
-    /// </summary>
-    public StateMachineBuilder NonInterruptible()
-    {
-        EnsureState();
-        _currentState!.IsInterruptible = false;
-        return this;
-    }
+
 
     /// <summary>
     /// Set the maximum time (ms) to stay in this state before failing.
@@ -246,19 +221,7 @@ public class StateMachineBuilder
         return this;
     }
 
-    // ════════════════════════════════════════════════════════════
-    // Interruption Cleanup Actions
-    // ════════════════════════════════════════════════════════════
 
-    /// <summary>
-    /// Add cleanup action for when this state is forcefully interrupted by a Global Transition.
-    /// </summary>
-    public StateMachineBuilder OnInterrupt(IAction action)
-    {
-        EnsureState();
-        _currentState!.InterruptionActions.Add(action);
-        return this;
-    }
 
     // ════════════════════════════════════════════════════════════
     // Transitions

@@ -32,6 +32,14 @@ public class ScreenCaptureManager
     }
     
     public int CaptureIntervalMs { get; set; } = 100;
+
+    /// <summary>
+    /// Minimum interval (ms) between captures, even when forced.
+    /// Prevents redundant screenshots when multiple templates are checked in the same polling cycle.
+    /// Default 50ms — screen can't meaningfully change faster than this.
+    /// </summary>
+    public int MinCaptureIntervalMs { get; set; } = 50;
+
     public System.Windows.Point? LastFoundImageLocation { get; set; }
 
     /// <summary>
@@ -50,6 +58,14 @@ public class ScreenCaptureManager
     {
         if (string.IsNullOrEmpty(_device.TargetId))
             return false;
+
+        // Even forced captures respect minimum interval — screen can't change in <50ms
+        if (LastCaptureTime.HasValue)
+        {
+            var elapsed = (DateTime.Now - LastCaptureTime.Value).TotalMilliseconds;
+            if (elapsed < MinCaptureIntervalMs)
+                return LastScreenCapture != null;
+        }
             
         if (!force && LastScreenCapture != null && LastCaptureTime.HasValue)
         {

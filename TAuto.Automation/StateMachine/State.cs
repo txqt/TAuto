@@ -72,17 +72,4 @@ public class State
     /// </summary>
     public int SlowdownThreshold { get; set; } = 3;
 
-    /// <summary>
-    /// Whether this state can be interrupted by Global Transitions mid-action.
-    /// Set to false for critical atomic sequences (e.g., spending items, confirmations).
-    /// Default: true.
-    /// </summary>
-    public bool IsInterruptible { get; set; } = true;
-
-    /// <summary>
-    /// Actions to execute when this state is forcefully interrupted by a Global Transition.
-    /// Use for cleanup: closing UI panels, resetting flags, releasing resources.
-    /// Only runs if IsInterruptible == true and a Global Transition triggers mid-action.
-    /// </summary>
-    public ObservableCollection<IAction> InterruptionActions { get; set; } = new();
 }
