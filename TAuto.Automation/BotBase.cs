@@ -423,7 +423,7 @@ public abstract class BotBase
         if (Arguments.TryGetValue(name, out var value))
         {
             try { return (T)Convert.ChangeType(value, typeof(T)); }
-            catch { return defaultValue; }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BotBase] GetArg<{typeof(T).Name}>('{name}') cast failed: {ex.Message}"); return defaultValue; }
         }
         return defaultValue;
     }

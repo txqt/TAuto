@@ -65,7 +65,7 @@ public class SessionManager
                 var session = JsonSerializer.Deserialize<SessionState>(json);
                 if (session != null) sessions.Add(session);
             }
-            catch { /* Ignore corrupted files */ }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[SessionManager] Failed to load session: {ex.Message}"); }
         }
         
         return sessions.OrderByDescending(s => s.LastSaveTime).ToList();

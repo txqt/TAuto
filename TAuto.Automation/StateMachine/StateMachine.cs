@@ -248,61 +248,10 @@ public class StateMachine
                     if (await transition.ShouldTransitionAsync(context, ct))
                     {
                         var transitionElapsedMs = (DateTime.UtcNow - stateStartTime).TotalMilliseconds;
-                        
-                        // Trace: State exiting
                         LogTrace("StateExit", _currentState.Name, transition.ToState, pollCount: pollCount, elapsedMs: transitionElapsedMs);
-                        
-                        // Execute Exit Actions ONCE
-                        foreach (var exitAction in _currentState.ExitActions)
-                        {
-                            if (ct.IsCancellationRequested) break;
-                            await exitAction.ExecuteAsync(context, ct);
-                        }
-                        
-                        // Clear scoped local variables for the exiting state
-                        context.ClearLocalVariables(_currentState.Name);
-                        
-                        // IGNORE Jump in Exit Actions
-                        if (!string.IsNullOrEmpty(context.JumpToId))
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[StateMachine] Warning: Jump ignored in Exit actions of state '{_currentState.Name}'.");
-                            context.JumpToId = null;
-                        }
 
-                        // Handle special "END" state
-                        if (string.Equals(transition.ToState, "END", StringComparison.OrdinalIgnoreCase))
-                        {
-                            foreach (var transitionAction in transition.OnTransitionActions)
-                            {
-                                if (ct.IsCancellationRequested) break;
-                                await transitionAction.ExecuteAsync(context, ct);
-                            }
-                            
-                            LogTrace("TransitionTrigger", _currentState.Name, "END", details: "State machine completed", elapsedMs: transitionElapsedMs);
-                            return ActionResult.Ok("State Machine completed (reached END state).");
-                        }
-
-                        // Change state
-                        var nextState = FindState(transition.ToState);
-                        
-                        if (nextState == null)
-                        {
-                            return ActionResult.Fail($"Target state '{transition.ToState}' not found.");
-                        }
-                        
-                        // Execute OnTransitionActions
-                        foreach (var transitionAction in transition.OnTransitionActions)
-                        {
-                            if (ct.IsCancellationRequested) break;
-                            await transitionAction.ExecuteAsync(context, ct);
-                        }
-                        
-                        LogTrace("TransitionTrigger", _currentState.Name, nextState.Name, pollCount: pollCount, elapsedMs: transitionElapsedMs);
-                        
-                        Metrics.RecordStateTime(_currentState.Name, transitionElapsedMs, pollCount);
-                        Metrics.RecordTransition(_currentState.Name, nextState.Name);
-                        
-                        _currentState = nextState;
+                        var result = await ExecuteTransitionAsync(transition, _currentState, context, stateStartTime, pollCount, ct);
+                        if (result != null) return result;
                         transitioned = true;
                         break;
                     }
@@ -409,6 +358,13 @@ public class StateMachine
         // Clear scoped local variables
         context.ClearLocalVariables(fromState.Name);
 
+        // Ignore Jump in Exit Actions
+        if (!string.IsNullOrEmpty(context.JumpToId))
+        {
+            System.Diagnostics.Debug.WriteLine($"[StateMachine] Warning: Jump ignored in Exit actions of state '{fromState.Name}'. Use Transitions instead.");
+            context.JumpToId = null;
+        }
+
         // Handle END state
         if (string.Equals(transition.ToState, "END", StringComparison.OrdinalIgnoreCase))
         {
@@ -436,7 +392,7 @@ public class StateMachine
         }
 
         LogTrace("TransitionTrigger", fromState.Name, nextState.Name,
-            details: "Global interrupt transition", pollCount: pollCount, elapsedMs: transitionElapsedMs);
+            pollCount: pollCount, elapsedMs: transitionElapsedMs);
 
         Metrics.RecordStateTime(fromState.Name, transitionElapsedMs, pollCount);
         Metrics.RecordTransition(fromState.Name, nextState.Name);

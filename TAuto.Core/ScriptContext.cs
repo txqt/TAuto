@@ -134,7 +134,7 @@ public class ScriptContext
         {
             if (value is T typedValue) return typedValue;
             try { return (T)Convert.ChangeType(value, typeof(T)); }
-            catch { return defaultValue; }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[ScriptContext] GetVar<{typeof(T).Name}>('{key}') cast failed: {ex.Message}"); return defaultValue; }
         }
         return defaultValue;
     }
