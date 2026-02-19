@@ -218,54 +218,65 @@ public class ProcessManagerService : IDisposable
         // ── Monitor process exit (crash recovery with Crash Loop Protection) ──
         process.Exited += async (_, _) =>
         {
-            var exitCode = process.ExitCode;
-            Debug.WriteLine($"[Manager] Worker '{workerId}' exited with code {exitCode}");
-
-            // Release any tokens held by this worker to prevent leaks
-            _tokenService.ReleaseAllForWorker(workerId);
-
-            bool isCrash = exitCode != 0 && exitCode != -1;
-            OnWorkerStatusChanged?.Invoke(workerId, isCrash ? "crashed" : "stopped");
-
-            // Clean up
-            await RemoveWorkerAsync(workerId);
-
-            // Auto-restart only on crashes (not graceful stops)
-            if (AutoRestart && isCrash && !_disposed)
+            // CRITICAL: This is async void (required by event signature).
+            // Any unhandled exception here would crash the entire App.
+            // Wrap everything in try-catch for safety.
+            try
             {
-                // ── Crash Loop Protection ──
-                var history = _crashHistory.GetOrAdd(workerId, _ => new List<DateTime>());
-                lock (history)
-                {
-                    var now = DateTime.UtcNow;
-                    // Prune old entries outside the window
-                    history.RemoveAll(t => (now - t) > CrashWindowDuration);
-                    history.Add(now);
+                var exitCode = process.ExitCode;
+                Debug.WriteLine($"[Manager] Worker '{workerId}' exited with code {exitCode}");
 
-                    if (history.Count > MaxCrashesBeforeStop)
+                // Release any tokens held by this worker to prevent leaks
+                _tokenService.ReleaseAllForWorker(workerId);
+
+                bool isCrash = exitCode != 0 && exitCode != -1;
+                OnWorkerStatusChanged?.Invoke(workerId, isCrash ? "crashed" : "stopped");
+
+                // Clean up
+                await RemoveWorkerAsync(workerId);
+
+                // Auto-restart only on crashes (not graceful stops)
+                if (AutoRestart && isCrash && !_disposed)
+                {
+                    // ── Crash Loop Protection ──
+                    var history = _crashHistory.GetOrAdd(workerId, _ => new List<DateTime>());
+                    lock (history)
                     {
-                        Debug.WriteLine($"[Manager] CRASH LOOP DETECTED for '{workerId}': " +
-                            $"{history.Count} crashes in {CrashWindowDuration.TotalSeconds}s. Stopping auto-restart.");
-                        OnWorkerStatusChanged?.Invoke(workerId, "crash_loop_stopped");
-                        return;
+                        var now = DateTime.UtcNow;
+                        // Prune old entries outside the window
+                        history.RemoveAll(t => (now - t) > CrashWindowDuration);
+                        history.Add(now);
+
+                        if (history.Count > MaxCrashesBeforeStop)
+                        {
+                            Debug.WriteLine($"[Manager] CRASH LOOP DETECTED for '{workerId}': " +
+                                $"{history.Count} crashes in {CrashWindowDuration.TotalSeconds}s. Stopping auto-restart.");
+                            OnWorkerStatusChanged?.Invoke(workerId, "crash_loop_stopped");
+                            return;
+                        }
+                    }
+
+                    OnWorkerStatusChanged?.Invoke(workerId, "restarting");
+                    await Task.Delay(RestartDelayMs);
+
+                    if (!_disposed)
+                    {
+                        try
+                        {
+                            await CreateWorkerAsync(startupArgs, CancellationToken.None);
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[Manager] Failed to restart Worker '{workerId}': {ex.Message}");
+                            OnWorkerStatusChanged?.Invoke(workerId, "restart_failed");
+                        }
                     }
                 }
-
-                OnWorkerStatusChanged?.Invoke(workerId, "restarting");
-                await Task.Delay(RestartDelayMs);
-
-                if (!_disposed)
-                {
-                    try
-                    {
-                        await CreateWorkerAsync(startupArgs, CancellationToken.None);
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"[Manager] Failed to restart Worker '{workerId}': {ex.Message}");
-                        OnWorkerStatusChanged?.Invoke(workerId, "restart_failed");
-                    }
-                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Manager] CRITICAL: Worker '{workerId}' Exited handler failed: {ex.Message}");
+                OnWorkerStatusChanged?.Invoke(workerId, $"handler_error: {ex.Message}");
             }
         };
 
@@ -411,9 +422,10 @@ public class ProcessManagerService : IDisposable
         if (_workers.TryRemove(workerId, out var worker))
         {
             worker.Cts.Cancel();
-            worker.Writer?.Dispose();
-            worker.Reader?.Dispose();
-            worker.PipeServer?.Dispose();
+            // Pipe may already be broken/closed from Worker side — safe to ignore
+            try { worker.Writer?.Dispose(); } catch { }
+            try { worker.Reader?.Dispose(); } catch { }
+            try { worker.PipeServer?.Dispose(); } catch { }
         }
         return Task.CompletedTask;
     }
