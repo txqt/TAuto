@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,14 +16,14 @@ public class StateMachine
 {
     public StateMachine()
     {
-        States = new ObservableCollection<State>();
-        GlobalTransitions = new ObservableCollection<StateTransition>();
+        States = new List<State>();
+        GlobalTransitions = new List<StateTransition>();
     }
 
     /// <summary>
     /// Collection of all states in this machine.
     /// </summary>
-    public ObservableCollection<State> States { get; set; }
+    public List<State> States { get; set; }
 
     /// <summary>
     /// The name of the state to start with.
@@ -61,7 +60,7 @@ public class StateMachine
     /// Use for high-priority interrupts (e.g., "Under Attack", "Disconnected").
     /// Evaluated sequentially before entry actions and in the polling loop.
     /// </summary>
-    public ObservableCollection<StateTransition> GlobalTransitions { get; set; }
+    public List<StateTransition> GlobalTransitions { get; set; }
 
     private State? _currentState;
 
@@ -69,6 +68,16 @@ public class StateMachine
     /// O(1) state lookup. Built once at RunAsync start (immutable during execution).
     /// </summary>
     private Dictionary<string, State>? _stateLookup;
+
+    /// <summary>
+    /// Pre-sorted global transitions (sorted once at RunAsync start, not per-poll).
+    /// </summary>
+    private StateTransition[]? _sortedGlobalTransitions;
+
+    /// <summary>
+    /// Pre-sorted state transitions for the current state (sorted once at state entry, not per-poll).
+    /// </summary>
+    private StateTransition[]? _sortedStateTransitions;
 
     /// <summary>
     /// Execute the state machine logic with polling loop.
@@ -83,6 +92,11 @@ public class StateMachine
 
         // Build immutable state lookup (O(1) access during execution)
         _stateLookup = States.ToDictionary(s => s.Name, s => s);
+
+        // Pre-sort global transitions once (not per-poll)
+        _sortedGlobalTransitions = GlobalTransitions
+            .OrderByDescending(t => t.Priority)
+            .ToArray();
 
         // Find initial state
         _currentState = FindState(InitialStateName);
@@ -152,6 +166,13 @@ public class StateMachine
             // ────────────────────────────────────────────────────
             // 3. POLLING LOOP - check globals first, then state transitions
             // ────────────────────────────────────────────────────
+            
+            // Pre-sort state transitions once (not per-poll)
+            _sortedStateTransitions = _currentState.Transitions
+                .OrderBy(t => t.IsFallback)
+                .ThenByDescending(t => t.Priority)
+                .ToArray();
+            
             bool transitioned = false;
             var transitionStartTimes = new Dictionary<StateTransition, DateTime>();
             var transitionRetryCounts = new Dictionary<StateTransition, int>();
@@ -186,7 +207,7 @@ public class StateMachine
                 }
 
                 // ── GLOBAL TRANSITIONS (highest priority interrupts) ──
-                foreach (var globalTransition in GlobalTransitions.OrderByDescending(t => t.Priority))
+                foreach (var globalTransition in _sortedGlobalTransitions!)
                 {
                     if (ct.IsCancellationRequested) break;
                     
@@ -206,13 +227,7 @@ public class StateMachine
                 
                 if (transitioned) continue;
 
-                // ── STATE-SPECIFIC TRANSITIONS (sorted by Priority DESC, fallbacks last) ──
-                var sortedTransitions = _currentState.Transitions
-                    .OrderBy(t => t.IsFallback)
-                    .ThenByDescending(t => t.Priority)
-                    .ToList();
-
-                foreach (var transition in sortedTransitions)
+                foreach (var transition in _sortedStateTransitions!)
                 {
                     // Check TRANSITION-level timeout (skip if expired)
                     if (transition.TimeoutMs > 0)
@@ -345,7 +360,7 @@ public class StateMachine
     /// </summary>
     private async Task<StateTransition?> CheckGlobalTransitionsAsync(ScriptContext context, CancellationToken ct)
     {
-        foreach (var gt in GlobalTransitions.OrderByDescending(t => t.Priority))
+        foreach (var gt in _sortedGlobalTransitions!)
         {
             if (ct.IsCancellationRequested) return null;
 

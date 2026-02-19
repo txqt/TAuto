@@ -1,5 +1,4 @@
 ﻿using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Text.Json.Serialization;
 using TAuto.Core;
 
@@ -12,9 +11,9 @@ public class State
 {
     public State()
     {
-        EntryActions = new ObservableCollection<IAction>();
-        ExitActions = new ObservableCollection<IAction>();
-        Transitions = new ObservableCollection<StateTransition>();
+        EntryActions = new List<IAction>();
+        ExitActions = new List<IAction>();
+        Transitions = new List<StateTransition>();
     }
 
     /// <summary>
@@ -25,27 +24,17 @@ public class State
     /// <summary>
     /// Actions to execute when entering this state.
     /// </summary>
-    public ObservableCollection<IAction> EntryActions { get; set; }
+    public List<IAction> EntryActions { get; set; }
 
     /// <summary>
     /// Actions to execute when exiting this state.
     /// </summary>
-    public ObservableCollection<IAction> ExitActions { get; set; }
+    public List<IAction> ExitActions { get; set; }
 
     /// <summary>
     /// Possible transitions from this state. Checked in order.
     /// </summary>
-    public ObservableCollection<StateTransition> Transitions { get; set; }
-
-    /// <summary>
-    /// UI Helper: Position X for visual editor (future proofing).
-    /// </summary>
-    public double VisualX { get; set; }
-
-    /// <summary>
-    /// UI Helper: Position Y for visual editor (future proofing).
-    /// </summary>
-    public double VisualY { get; set; }
+    public List<StateTransition> Transitions { get; set; }
     
     /// <summary>
     /// Maximum time (ms) to stay in this state before failing. 0 = no limit.
