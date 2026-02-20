@@ -134,6 +134,17 @@ public class StateMachineBuilder
     }
 
     /// <summary>
+    /// Add a scaled screen tap as an entry action.
+    /// Assumes coordinates are based on 1280x720 and scales them to the device resolution.
+    /// </summary>
+    public StateMachineBuilder TapScaled(int x, int y)
+    {
+        EnsureState();
+        _currentState!.EntryActions.Add(new TapAction { X = x, Y = y, UseScaling = true });
+        return this;
+    }
+
+    /// <summary>
     /// Add an image click as an entry action.
     /// </summary>
     public StateMachineBuilder ClickImage(string templatePath, int delayAfterMs = 0, int timeoutMs = 10000)

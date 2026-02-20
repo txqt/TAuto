@@ -217,29 +217,6 @@ public abstract class BotBase
         }
     }
 
-    /// <summary>
-    /// Tap at coordinates that were measured at ReferenceResolution,
-    /// auto-scaled to the current device resolution.
-    /// Use this when hardcoding coordinates from a 1280×720 reference.
-    /// </summary>
-    protected async Task TapScaled(int refX, int refY)
-    {
-        CheckCancelled();
-        var (w, h) = Context.Device.ScreenSize;
-        if (w <= 0 || h <= 0)
-        {
-            // Fallback: try to get size from last capture
-            await Context.UpdateScreenCaptureAsync(force: true);
-            if (Context.LastScreenCapture != null)
-            {
-                w = Context.LastScreenCapture.PixelWidth;
-                h = Context.LastScreenCapture.PixelHeight;
-            }
-        }
-        var (x, y) = CoordinateScaler.Scale(refX, refY, w, h,
-            ReferenceResolution.Width, ReferenceResolution.Height);
-        await Context.Device.TapAsync(x, y);
-    }
 
     protected async Task Swipe(int x1, int y1, int x2, int y2, int durationMs = 300)
     {

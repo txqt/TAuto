@@ -60,6 +60,27 @@ public class TapAction : ActionBase
         set => SetProperty(ref _usePercent, value); 
     }
     
+    private bool _useScaling;
+    public bool UseScaling
+    {
+        get => _useScaling;
+        set => SetProperty(ref _useScaling, value);
+    }
+
+    private int _refWidth = CoordinateScaler.DefaultRefWidth;
+    public int RefWidth
+    {
+        get => _refWidth;
+        set => SetProperty(ref _refWidth, value);
+    }
+
+    private int _refHeight = CoordinateScaler.DefaultRefHeight;
+    public int RefHeight
+    {
+        get => _refHeight;
+        set => SetProperty(ref _refHeight, value);
+    }
+
     private int _randomOffset = 0;
     public int RandomOffset 
     { 
@@ -87,6 +108,27 @@ public class TapAction : ActionBase
             
             tapX = (int)(XPercent / 100.0 * screenWidth);
             tapY = (int)(YPercent / 100.0 * screenHeight);
+        }
+        else if (UseScaling)
+        {
+            var (w, h) = context.Device.ScreenSize;
+            if (w <= 0 || h <= 0)
+            {
+                if (context.LastScreenCapture == null)
+                    await context.UpdateScreenCaptureAsync(force: true);
+                    
+                if (context.LastScreenCapture != null)
+                {
+                    w = context.LastScreenCapture.PixelWidth;
+                    h = context.LastScreenCapture.PixelHeight;
+                }
+                else
+                {
+                    return ActionResult.Fail("Cannot get screen dimensions for scaling");
+                }
+            }
+            
+            (tapX, tapY) = CoordinateScaler.Scale(X, Y, w, h, RefWidth, RefHeight);
         }
         else
         {
