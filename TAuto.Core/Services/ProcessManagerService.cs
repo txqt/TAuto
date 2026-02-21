@@ -24,6 +24,7 @@ namespace TAuto.Core.Services;
 /// </summary>
 public class ProcessManagerService : IDisposable
 {
+    private static readonly Random _random = new();
     private readonly JobObject _jobObject;
     private readonly ConcurrentDictionary<string, WorkerProcess> _workers = new();
     private readonly ComputeTokenService _tokenService;
@@ -72,7 +73,9 @@ public class ProcessManagerService : IDisposable
 
     public ProcessManagerService(ComputeTokenService? tokenService = null)
     {
-        _jobObject = new JobObject("AutoBotFarm");
+        // Use an anonymous Job Object to prevent Win32Exception (5) Access Denied
+        // if a previous instance left zombie processes holding the named handle.
+        _jobObject = new JobObject();
         _tokenService = tokenService ?? new ComputeTokenService();
         _workerLogService = new WorkerLogService();
 
@@ -90,11 +93,9 @@ public class ProcessManagerService : IDisposable
     /// <summary>
     /// Spawn a new Worker process and connect via Named Pipe.
     /// </summary>
-    public async Task<string> CreateWorkerAsync(WorkerStartupArgs startupArgs, CancellationToken ct = default)
+    public async Task<string> StartWorkerAsync(WorkerStartupArgs startupArgs, string botFolder)
     {
-        var workerId = startupArgs.WorkerId;
-        if (string.IsNullOrEmpty(workerId))
-            workerId = $"worker-{Guid.NewGuid().ToString("N")[..8]}";
+        var workerId = $"worker-{_random.Next(1000, 9999)}";
 
         startupArgs.WorkerId = workerId;
         var pipeName = $"AutoBot_Worker_{workerId}";
@@ -132,7 +133,8 @@ public class ProcessManagerService : IDisposable
                 FileName = WorkerExePath,
                 Arguments = $"--pipe {pipeName} --id {workerId}",
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                WorkingDirectory = botFolder
             },
             EnableRaisingEvents = true
         };
@@ -263,7 +265,8 @@ public class ProcessManagerService : IDisposable
                     {
                         try
                         {
-                            await CreateWorkerAsync(startupArgs, CancellationToken.None);
+                            string botDir = Path.GetDirectoryName(startupArgs.BotDllPath)!;
+                            await StartWorkerAsync(startupArgs, botDir);
                         }
                         catch (Exception ex)
                         {
