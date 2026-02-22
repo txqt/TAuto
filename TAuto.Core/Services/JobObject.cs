@@ -31,8 +31,9 @@ public sealed class JobObject : IDisposable
         {
             BasicLimitInformation = new JOBOBJECT_BASIC_LIMIT_INFORMATION
             {
-                LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-            }
+                LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_PROCESS_MEMORY
+            },
+            ProcessMemoryLimit = new UIntPtr(500 * 1024 * 1024) // 500 MB per Worker Limit
         };
 
         int infoSize = Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
@@ -88,6 +89,7 @@ public sealed class JobObject : IDisposable
     // ════════════════════════════════════════════════════════════
 
     private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
+    private const uint JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100;
 
     private enum JobObjectInfoType
     {
