@@ -95,8 +95,10 @@ public class ProcessManagerService : IDisposable
     /// </summary>
     public async Task<string> StartWorkerAsync(WorkerStartupArgs startupArgs, string botFolder)
     {
-        var workerId = $"worker-{_random.Next(1000, 9999)}";
-
+        var workerId = string.IsNullOrEmpty(startupArgs.WorkerId) 
+            ? $"worker-{_random.Next(1000, 9999)}" 
+            : startupArgs.WorkerId;
+            
         startupArgs.WorkerId = workerId;
         var pipeName = $"AutoBot_Worker_{workerId}";
 
