@@ -1,5 +1,5 @@
 ﻿using System.Threading.Tasks;
-using System.Windows.Media.Imaging;
+using TAuto.Core.Imaging;
 using TAuto.Core.Models;
 
 namespace TAuto.Core;
@@ -8,7 +8,30 @@ namespace TAuto.Core;
 /// Platform-independent device control interface.
 /// Implementations: ADB (Android), WinAPI (Desktop), Selenium (Web)
 /// </summary>
-public interface IDeviceController
+public interface ITouchInputDevice
+{
+    Task<bool> TapAsync(int x, int y);
+    Task<bool> SwipeAsync(int x1, int y1, int x2, int y2, int durationMs);
+}
+
+public interface IKeyboardInputDevice
+{
+    Task<bool> SendKeyAsync(string key);
+    Task<bool> SendTextAsync(string text);
+}
+
+public interface IScreenCaptureDevice
+{
+    Task<IImage?> CaptureScreenAsync();
+}
+
+public interface IAppLifecycleDevice
+{
+    Task<bool> LaunchAppAsync(string packageOrPath) => Task.FromResult(false);
+    Task<bool> ForceStopAppAsync(string packageOrName) => Task.FromResult(false);
+}
+
+public interface IDeviceController : ITouchInputDevice, IKeyboardInputDevice, IScreenCaptureDevice, IAppLifecycleDevice
 {
     /// <summary>
     /// Unique identifier for target (device serial, window handle, URL)
@@ -26,44 +49,7 @@ public interface IDeviceController
     (int Width, int Height) ScreenSize { get; }
     
     /// <summary>
-    /// Tap/Click at absolute coordinates
-    /// </summary>
-    Task<bool> TapAsync(int x, int y);
-    
-    /// <summary>
-    /// Swipe/Drag from point A to point B
-    /// </summary>
-    Task<bool> SwipeAsync(int x1, int y1, int x2, int y2, int durationMs);
-    
-    /// <summary>
-    /// Capture current screen/window
-    /// </summary>
-    Task<BitmapSource?> CaptureScreenAsync();
-    
-    /// <summary>
     /// Check if target is available/connected
     /// </summary>
     Task<bool> IsAvailableAsync();
-
-    /// <summary>
-    /// Send a key press event (e.g., Key.Enter, Key.Space, "A")
-    /// </summary>
-    Task<bool> SendKeyAsync(string key);
-
-    /// <summary>
-    /// Send text input (typing)
-    /// </summary>
-    Task<bool> SendTextAsync(string text);
-
-    /// <summary>
-    /// Launch an application by package name (Android) or executable path (Windows).
-    /// Returns true if launch succeeded.
-    /// </summary>
-    Task<bool> LaunchAppAsync(string packageOrPath) => Task.FromResult(false);
-
-    /// <summary>
-    /// Force-stop an application by package name (Android) or process name (Windows).
-    /// Returns true if stop succeeded.
-    /// </summary>
-    Task<bool> ForceStopAppAsync(string packageOrName) => Task.FromResult(false);
 }

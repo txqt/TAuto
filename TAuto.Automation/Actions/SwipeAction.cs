@@ -116,8 +116,8 @@ public class SwipeAction : ActionBase
             if (context.LastScreenCapture == null)
                 return ActionResult.Fail("Cannot get screen dimensions");
             
-            int screenWidth = context.LastScreenCapture.PixelWidth;
-            int screenHeight = context.LastScreenCapture.PixelHeight;
+            int screenWidth = context.LastScreenCapture.Width;
+            int screenHeight = context.LastScreenCapture.Height;
             
             x1 = (int)(StartXPercent / 100.0 * screenWidth);
             y1 = (int)(StartYPercent / 100.0 * screenHeight);

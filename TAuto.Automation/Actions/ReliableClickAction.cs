@@ -2,7 +2,7 @@ using TAuto.Core;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Media.Imaging;
+using TAuto.Core.Imaging;
 
 namespace TAuto.Automation.Actions;
 
@@ -146,10 +146,10 @@ public class ReliableClickAction : ActionBase
         if (string.IsNullOrEmpty(TemplatePath)) return ActionResult.Fail("Template path not set");
 
         string? baseDir = context.GetString("BaseDirectory");
-        BitmapSource? template = context.Vision.LoadTemplate(TemplatePath, baseDir);
+        IImage? template = context.Vision.LoadTemplate(TemplatePath, baseDir);
         if (template == null) return ActionResult.Fail($"Cannot load template: {TemplatePath}");
 
-        BitmapSource? confirmTemplate = null;
+        IImage? confirmTemplate = null;
         if (Confirm == ConfirmMode.WaitForNext && !string.IsNullOrEmpty(ConfirmTemplatePath))
         {
             confirmTemplate = context.Vision.LoadTemplate(ConfirmTemplatePath, baseDir);
@@ -190,7 +190,7 @@ public class ReliableClickAction : ActionBase
                 tapY += rnd.Next(-RandomOffset, RandomOffset + 1);
             }
 
-            context.LastFoundImageLocation = new System.Windows.Point(tapX, tapY);
+            context.LastFoundImageLocation = new System.Drawing.Point(tapX, tapY);
             bool tapResult = await context.Device.TapAsync(tapX, tapY);
             if (!tapResult) return ActionResult.Fail($"Tap failed at ({tapX}, {tapY})");
 
@@ -212,7 +212,7 @@ public class ReliableClickAction : ActionBase
 
     private async Task<bool> ConfirmStateChange(
         ScriptContext context, CancellationToken ct,
-        BitmapSource clickedTemplate, BitmapSource? nextTemplate)
+        IImage clickedTemplate, IImage? nextTemplate)
     {
         DateTime confirmStart = DateTime.Now;
 

@@ -45,7 +45,7 @@ public class StateMachineBuilder
     /// </summary>
     public StateMachineBuilder MaxTransitions(int max)
     {
-        _machine.MaxTransitions = max;
+        _machine.LoopMonitor.MaxTransitions = max;
         return this;
     }
 

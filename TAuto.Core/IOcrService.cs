@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Drawing;
 using System.Threading.Tasks;
-using System.Windows.Media.Imaging;
+using TAuto.Core.Imaging;
 
 namespace TAuto.Core;
 
@@ -22,7 +22,7 @@ public interface IOcrService
     /// <param name="borderSize">Border pixels around text.</param>
     /// <param name="pageSegMode">Tesseract PSM: 3=auto, 7=single line, 8=single word, 13=raw line.</param>
     /// <returns>Extracted text string.</returns>
-    string GetText(BitmapSource image, string language = "eng", double scale = 1.0, string whitelist = null, int threshold = 0, bool invert = false, int borderSize = 0, int pageSegMode = 3);
+    string GetText(IImage image, string language = "eng", double scale = 1.0, string whitelist = null, int threshold = 0, bool invert = false, int borderSize = 0, int pageSegMode = 3);
 
     /// <summary>
     /// Extract text blocks with their bounding boxes.
@@ -36,18 +36,18 @@ public interface IOcrService
     /// <param name="borderSize">Border pixels around text.</param>
     /// <param name="pageSegMode">Tesseract PSM: 3=auto, 7=single line, 8=single word, 13=raw line.</param>
     /// <returns>List of detected text blocks.</returns>
-    List<OcrResultBlock> GetTextBlocks(BitmapSource image, string language = "eng", double scale = 1.0, string whitelist = null, int threshold = 0, bool invert = false, int borderSize = 0, int pageSegMode = 3);
+    List<OcrResultBlock> GetTextBlocks(IImage image, string language = "eng", double scale = 1.0, string whitelist = null, int threshold = 0, bool invert = false, int borderSize = 0, int pageSegMode = 3);
 
     /// <summary>
     /// Multi-threshold voting OCR: run at 3 thresholds, pick majority result.
     /// </summary>
-    string GetTextWithVoting(BitmapSource image, string language = "eng", double scale = 1.0,
+    string GetTextWithVoting(IImage image, string language = "eng", double scale = 1.0,
         string whitelist = null, int baseThreshold = 150, bool invert = false, int borderSize = 12, int pageSegMode = 7);
 
     /// <summary>
     /// Segmentation-aware OCR: split merged digits using contour analysis, then OCR.
     /// </summary>
-    string GetTextWithSegmentation(BitmapSource image, string language = "eng", double scale = 1.0,
+    string GetTextWithSegmentation(IImage image, string language = "eng", double scale = 1.0,
         string whitelist = null, int threshold = 150, bool invert = false, int borderSize = 12, int pageSegMode = 7);
 }
 
@@ -58,7 +58,7 @@ public class OcrResultBlock
     public Rectangle Rect { get; set; }
     
     // Helper to get center point
-    public System.Windows.Point Center => new System.Windows.Point(
+    public System.Drawing.Point Center => new System.Drawing.Point(
         Rect.X + Rect.Width / 2, 
         Rect.Y + Rect.Height / 2);
 }

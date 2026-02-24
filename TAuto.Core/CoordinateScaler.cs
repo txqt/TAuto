@@ -1,4 +1,4 @@
-using System.Windows;
+using System.Drawing;
 
 namespace TAuto.Core;
 
@@ -40,7 +40,7 @@ public static class CoordinateScaler
     {
         double scaleX = (double)actualWidth / refWidth;
         double scaleY = (double)actualHeight / refHeight;
-        return new Point(p.X * scaleX, p.Y * scaleY);
+        return new Point((int)(p.X * scaleX), (int)(p.Y * scaleY));
     }
 
     /// <summary>

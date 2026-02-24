@@ -2,7 +2,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Media.Imaging;
+using TAuto.Core.Imaging;
 
 namespace TAuto.Automation.Actions;
 
@@ -124,7 +124,7 @@ public class ClickImageAction : ActionBase
         
         // Load template
         string? baseDir = context.GetString("BaseDirectory");
-        BitmapSource? template = context.Vision.LoadTemplate(TemplatePath, baseDir);
+        IImage? template = context.Vision.LoadTemplate(TemplatePath, baseDir);
         if (template == null)
             return ActionResult.Fail($"Cannot load template: {TemplatePath}");
         
@@ -177,7 +177,7 @@ public class ClickImageAction : ActionBase
         }
         
         // Store location in context for potential subsequent actions
-        context.LastFoundImageLocation = new System.Windows.Point(tapX, tapY);
+        context.LastFoundImageLocation = new System.Drawing.Point(tapX, tapY);
         
         // Perform tap
         bool success = await context.Device.TapAsync(tapX, tapY);

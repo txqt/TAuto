@@ -103,8 +103,8 @@ public class TapAction : ActionBase
             if (context.LastScreenCapture == null)
                 return ActionResult.Fail("Cannot get screen dimensions");
             
-            int screenWidth = context.LastScreenCapture.PixelWidth;
-            int screenHeight = context.LastScreenCapture.PixelHeight;
+            int screenWidth = context.LastScreenCapture.Width;
+            int screenHeight = context.LastScreenCapture.Height;
             
             tapX = (int)(XPercent / 100.0 * screenWidth);
             tapY = (int)(YPercent / 100.0 * screenHeight);
@@ -119,8 +119,8 @@ public class TapAction : ActionBase
                     
                 if (context.LastScreenCapture != null)
                 {
-                    w = context.LastScreenCapture.PixelWidth;
-                    h = context.LastScreenCapture.PixelHeight;
+                    w = context.LastScreenCapture.Width;
+                    h = context.LastScreenCapture.Height;
                 }
                 else
                 {

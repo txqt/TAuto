@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using TAuto.Core;
+using Microsoft.Extensions.Logging;
 using TAuto.Automation.Actions;
 using TAuto.Automation.BotSystem;
 
@@ -19,13 +20,24 @@ public abstract class BotBase
 
     /// <summary>
     /// User-supplied argument values, populated by the host before RunAsync.
+    /// Delegated to Configuration.
     /// </summary>
-    public Dictionary<string, object> Arguments { get; private set; } = new();
+    public Dictionary<string, object> Arguments => Configuration.Arguments;
 
-    private volatile TaskCompletionSource<bool>? _pauseSignal;
-    public event Action<bool>? OnPausedStateChanged;
+    public ILogger<BotBase>? Logger { get; set; }
+    public IRetryPolicy RetryPolicy { get; set; } = new DefaultRetryPolicy();
+    public IBotConfiguration Configuration { get; set; } = new DefaultBotConfiguration();
 
-    public bool IsPaused => _pauseSignal != null;
+    public IBotPausable Pausable { get; }
+    public IVisionHelper Vision { get; }
+    public IGameLifecycle Lifecycle { get; }
+
+    protected BotBase()
+    {
+        Pausable = new DefaultBotPausable(() => Logger);
+        Vision = new DefaultVisionHelper(() => Context, () => CancellationToken, () => Pausable, () => Logger);
+        Lifecycle = new DefaultGameLifecycle(() => Context, () => Logger);
+    }
 
     /// <summary>
     /// Reference resolution at which coordinates and templates were measured.
@@ -42,9 +54,9 @@ public abstract class BotBase
 
     /// <summary>
     /// Package name of the game being automated (e.g., "com.lilithgame.roc.gp").
-    /// Used by RestartGameAsync and ForceStopGameAsync.
+    /// Delegated to Lifecycle.
     /// </summary>
-    public string? GamePackageName { get; set; }
+    public string? GamePackageName { get => Lifecycle.GamePackageName; set => Lifecycle.GamePackageName = value; }
 
     public void Initialize(ScriptContext context, CancellationToken token)
     {
@@ -57,7 +69,7 @@ public abstract class BotBase
     /// </summary>
     public void SetArguments(Dictionary<string, object> args)
     {
-        Arguments = args ?? new();
+        Configuration.SetArguments(args);
     }
 
     /// <summary>
@@ -158,40 +170,7 @@ public abstract class BotBase
         });
     }
 
-    /// <summary>
-    /// Pauses the bot execution.
-    /// </summary>
-    public void Pause()
-    {
-        if (_pauseSignal == null || _pauseSignal.Task.IsCompleted)
-        {
-            _pauseSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            OnPausedStateChanged?.Invoke(true);
-            Log("Bot paused.");
-        }
-    }
 
-    /// <summary>
-    /// Resumes the bot execution.
-    /// </summary>
-    public void Resume()
-    {
-        if (_pauseSignal != null)
-        {
-            _pauseSignal.TrySetResult(true);
-            _pauseSignal = null;
-            OnPausedStateChanged?.Invoke(false);
-            Log("Bot resumed.");
-        }
-    }
-
-    protected async Task CheckPaused()
-    {
-        if (_pauseSignal != null)
-        {
-            await _pauseSignal.Task;
-        }
-    }
 
     public abstract Task RunAsync();
 
@@ -211,8 +190,8 @@ public abstract class BotBase
 
         if (Context.LastScreenCapture != null)
         {
-            int x = (int)(Context.LastScreenCapture.PixelWidth * xPercent / 100);
-            int y = (int)(Context.LastScreenCapture.PixelHeight * yPercent / 100);
+            int x = (int)(Context.LastScreenCapture.Width * xPercent / 100);
+            int y = (int)(Context.LastScreenCapture.Height * yPercent / 100);
             await Context.Device.TapAsync(x, y);
         }
     }
@@ -226,131 +205,14 @@ public abstract class BotBase
 
     #endregion
 
-    #region Helper Methods - Vision
 
-    protected async Task<System.Windows.Point?> FindImage(string templatePath, double threshold = 0.8)
-    {
-        CheckCancelled();
-        // Ensure we have a fresh capture
-        await Context.UpdateScreenCaptureAsync();
-        
-        if (Context.LastScreenCapture == null) return null;
-
-        // Load template
-        string? baseDir = Context.GetString("BaseDirectory");
-        var template = Context.Vision.LoadTemplate(templatePath, baseDir);
-        if (template == null)
-        {
-            Log($"Warning: Template not found at path '{templatePath}'");
-            return null;
-        }
-
-        var result = Context.Vision.FindTemplate(Context.LastScreenCapture, template, threshold);
-        
-        if (result.Found)
-        {
-            Context.LastFoundImageLocation = result.CenterLocation;
-            return result.CenterLocation;
-        }
-        return null;
-    }
-
-    protected async Task<bool> Exists(string templatePath, double threshold = 0.8)
-    {
-        return (await FindImage(templatePath, threshold)) != null;
-    }
-
-    protected async Task<bool> ClickImage(string templatePath, double threshold = 0.8, int offsetX = 0, int offsetY = 0)
-    {
-        var point = await FindImage(templatePath, threshold);
-        if (point.HasValue)
-        {
-            int x = (int)point.Value.X + offsetX;
-            int y = (int)point.Value.Y + offsetY;
-            await Tap(x, y);
-            return true;
-        }
-        return false;
-    }
-
-    protected async Task<bool> WaitForImage(string templatePath, int timeoutMs = 5000, double threshold = 0.8)
-    {
-        var start = DateTime.Now;
-        while ((DateTime.Now - start).TotalMilliseconds < timeoutMs)
-        {
-            if (await Exists(templatePath, threshold))
-                return true;
-            
-            await Delay(500);
-        }
-        return false;
-    }
-
-    #endregion
-
-    #region Helper Methods - Game Lifecycle
-
-    /// <summary>
-    /// Force-stop and relaunch the game. Waits for the specified delay
-    /// to allow the game to fully load before returning.
-    /// Requires GamePackageName to be set.
-    /// </summary>
-    protected async Task<bool> RestartGameAsync(int loadWaitMs = 15000)
-    {
-        CheckCancelled();
-        if (string.IsNullOrEmpty(GamePackageName))
-        {
-            Log("Cannot restart game: GamePackageName not set");
-            return false;
-        }
-
-        Log($"Restarting game: {GamePackageName}");
-
-        // Step 1: Force-stop
-        await Context.Device.ForceStopAppAsync(GamePackageName);
-        await Delay(2000);
-
-        // Step 2: Relaunch
-        bool launched = await Context.Device.LaunchAppAsync(GamePackageName);
-        if (!launched)
-        {
-            Log("Failed to launch game");
-            return false;
-        }
-
-        // Step 3: Wait for game to load
-        Log($"Game launched, waiting {loadWaitMs}ms for load...");
-        await Delay(loadWaitMs);
-
-        // Step 4: Reset health monitor
-        HealthMonitor?.Reset();
-
-        Log("Game restart complete");
-        return true;
-    }
-
-    /// <summary>
-    /// Force-stop the game. Useful for account switching flows.
-    /// </summary>
-    protected async Task<bool> ForceStopGameAsync()
-    {
-        CheckCancelled();
-        if (string.IsNullOrEmpty(GamePackageName))
-        {
-            Log("Cannot stop game: GamePackageName not set");
-            return false;
-        }
-        return await Context.Device.ForceStopAppAsync(GamePackageName);
-    }
-
-    #endregion
 
     #region Helper Methods - Utility
 
     protected async Task Delay(int ms)
     {
         CheckCancelled(); 
-        await CheckPaused(); // Wait if paused
+        await Pausable.CheckPausedAsync(); // Wait if paused
 
         try
         {
@@ -361,7 +223,7 @@ public abstract class BotBase
             throw; 
         }
 
-        await CheckPaused(); // Wait again in case we were paused during delay? 
+        await Pausable.CheckPausedAsync(); // Wait again in case we were paused during delay? 
         // Usually checking before is enough for the next action, but checking after ensures we don't proceed if paused exactly when waking up.
     }
 
@@ -371,16 +233,12 @@ public abstract class BotBase
     {
         OnLogReceived?.Invoke(message);
         Console.WriteLine($"[Bot] {message}");
+        Logger?.LogInformation(message);
     }
 
-    protected async Task<bool> Retry(Func<Task<bool>> action, int maxRetries = 3, int intervalMs = 1000)
+    protected Task<bool> Retry(Func<Task<bool>> action, int maxRetries = 3, int intervalMs = 1000)
     {
-        for (int i = 0; i < maxRetries; i++)
-        {
-            if (await action()) return true;
-            await Delay(intervalMs);
-        }
-        return false;
+        return RetryPolicy.RetryAsync(action, maxRetries, intervalMs, CancellationToken);
     }
 
     protected void CheckCancelled()
@@ -396,32 +254,11 @@ public abstract class BotBase
     /// Gets an argument value by name, with a default fallback.
     /// Safely handles System.Text.Json.JsonElement from IPC.
     /// </summary>
-    protected T GetArg<T>(string name, T defaultValue = default!)
-    {
-        if (Arguments.TryGetValue(name, out var value))
-        {
-            if (value is System.Text.Json.JsonElement jsonElement)
-            {
-                try
-                {
-                    if (typeof(T) == typeof(string)) return (T)(object)(jsonElement.GetString() ?? "");
-                    if (typeof(T) == typeof(int)) return (T)(object)jsonElement.GetInt32();
-                    if (typeof(T) == typeof(bool)) return (T)(object)jsonElement.GetBoolean();
-                    if (typeof(T) == typeof(double)) return (T)(object)jsonElement.GetDouble();
-                }
-                catch { }
-            }
-
-            try { return (T)Convert.ChangeType(value, typeof(T)); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BotBase] GetArg<{typeof(T).Name}>('{name}') cast failed: {ex.Message}"); return defaultValue; }
-        }
-        return defaultValue;
-    }
-
-    protected string GetArgString(string name, string defaultValue = "") => GetArg(name, defaultValue);
-    protected int GetArgInt(string name, int defaultValue = 0) => GetArg(name, defaultValue);
-    protected bool GetArgBool(string name, bool defaultValue = false) => GetArg(name, defaultValue);
-    protected double GetArgDouble(string name, double defaultValue = 0.0) => GetArg(name, defaultValue);
+    protected T GetArg<T>(string name, T defaultValue = default!) => Configuration.GetArg(name, defaultValue);
+    protected string GetArgString(string name, string defaultValue = "") => Configuration.GetArgString(name, defaultValue);
+    protected int GetArgInt(string name, int defaultValue = 0) => Configuration.GetArgInt(name, defaultValue);
+    protected bool GetArgBool(string name, bool defaultValue = false) => Configuration.GetArgBool(name, defaultValue);
+    protected double GetArgDouble(string name, double defaultValue = 0.0) => Configuration.GetArgDouble(name, defaultValue);
 
     #endregion
 }

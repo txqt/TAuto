@@ -2,7 +2,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Media.Imaging;
+using TAuto.Core.Imaging;
 
 namespace TAuto.Automation.Actions;
 
@@ -58,7 +58,7 @@ public class FindImageAction : ActionBase
         
         // Load template
         string? baseDir = context.GetString("BaseDirectory");
-        BitmapSource? template = context.Vision.LoadTemplate(TemplatePath, baseDir);
+        IImage? template = context.Vision.LoadTemplate(TemplatePath, baseDir);
         if (template == null)
             return ActionResult.Fail($"Cannot load template: {TemplatePath}");
         

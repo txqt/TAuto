@@ -4,13 +4,13 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TAuto.Core;
+using TAuto.Automation.StateMachine.Components;
 
 namespace TAuto.Automation.StateMachine;
 
 /// <summary>
 /// Controller for executing a state machine.
-/// Evaluates Global Transitions sequentially before each state's entry actions and in the polling loop.
-/// No parallel tasks, no atomic gates — simple and deterministic.
+/// Refactored to compose components (IActionExecutor, ITransitionEvaluator, IExecutionLoopMonitor, IVariableStore).
 /// </summary>
 public class StateMachine
 {
@@ -20,158 +20,69 @@ public class StateMachine
         GlobalTransitions = new List<StateTransition>();
     }
 
-    /// <summary>
-    /// Collection of all states in this machine.
-    /// </summary>
     public List<State> States { get; set; }
-
-    /// <summary>
-    /// The name of the state to start with.
-    /// </summary>
     public string InitialStateName { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Event fired when the state changes.
-    /// </summary>
     public event EventHandler<string>? OnStateChanged;
 
-    /// <summary>
-    /// Max transitions to prevent infinite loops without user control.
-    /// </summary>
-    public int MaxTransitions { get; set; } = 1000;
+    public IExecutionLoopMonitor LoopMonitor { get; set; } = new DefaultExecutionLoopMonitor();
+    public IActionExecutor ActionExecutor { get; set; } = new DefaultActionExecutor();
 
-    /// <summary>
-    /// Trace log for debugging execution. Enable with Trace.IsEnabled = true.
-    /// </summary>
     public StateMachineTrace Trace { get; } = new();
-
-    /// <summary>
-    /// Event fired when a trace entry is logged. Subscribe for real-time debugging.
-    /// </summary>
     public event EventHandler<StateMachineTraceEntry>? OnTrace;
-
-    /// <summary>
-    /// Performance metrics for this state machine. Always recorded.
-    /// </summary>
     public StateMachineMetrics Metrics { get; } = new();
 
-    /// <summary>
-    /// Global transitions checked in EVERY state before state-specific transitions.
-    /// Use for high-priority interrupts (e.g., "Under Attack", "Disconnected").
-    /// Evaluated sequentially before entry actions and in the polling loop.
-    /// </summary>
     public List<StateTransition> GlobalTransitions { get; set; }
 
     private State? _currentState;
-
-    /// <summary>
-    /// O(1) state lookup. Built once at RunAsync start (immutable during execution).
-    /// </summary>
     private Dictionary<string, State>? _stateLookup;
-
-    /// <summary>
-    /// Pre-sorted global transitions (sorted once at RunAsync start, not per-poll).
-    /// </summary>
     private StateTransition[]? _sortedGlobalTransitions;
-
-    /// <summary>
-    /// Pre-sorted state transitions for the current state (sorted once at state entry, not per-poll).
-    /// </summary>
     private StateTransition[]? _sortedStateTransitions;
 
-    /// <summary>
-    /// Execute the state machine logic with polling loop.
-    /// State stays active until a transition condition is met or timeout occurs.
-    /// </summary>
     public async Task<ActionResult> RunAsync(ScriptContext context, CancellationToken ct)
     {
-        if (States.Count == 0)
-        {
-            return ActionResult.Fail("State Machine has no states.");
-        }
+        if (States.Count == 0) return ActionResult.Fail("State Machine has no states.");
 
-        // Build immutable state lookup (O(1) access during execution)
         _stateLookup = States.ToDictionary(s => s.Name, s => s);
+        _sortedGlobalTransitions = GlobalTransitions.OrderByDescending(t => t.Priority).ToArray();
 
-        // Pre-sort global transitions once (not per-poll)
-        _sortedGlobalTransitions = GlobalTransitions
-            .OrderByDescending(t => t.Priority)
-            .ToArray();
-
-        // Find initial state
         _currentState = FindState(InitialStateName);
         if (_currentState == null)
         {
-            if (string.IsNullOrEmpty(InitialStateName))
-            {
-                _currentState = States.First();
-            }
-            else
-            {
-                return ActionResult.Fail($"Initial state '{InitialStateName}' not found.");
-            }
+            if (string.IsNullOrEmpty(InitialStateName)) _currentState = States.First();
+            else return ActionResult.Fail($"Initial state '{InitialStateName}' not found.");
         }
+
+        ITransitionEvaluator evaluator = new DefaultTransitionEvaluator(Trace);
+        IVariableStore variableStore = new DefaultVariableStore(context);
 
         int transitionCount = 0;
         
         while (!ct.IsCancellationRequested && _currentState != null)
         {
-            if (transitionCount++ > MaxTransitions)
-            {
-                return ActionResult.Fail($"Max transitions ({MaxTransitions}) exceeded. Possible infinite loop.");
-            }
+            var loopCheck = LoopMonitor.CheckTransitionCount(transitionCount++);
+            if (loopCheck != null) return loopCheck;
 
             OnStateChanged?.Invoke(this, _currentState.Name);
             var stateStartTime = DateTime.UtcNow;
 
-            // Trace: State entered
             LogTrace("StateEnter", _currentState.Name, elapsedMs: 0);
 
-            // ────────────────────────────────────────────────────
-            // 1. Check Global Transitions BEFORE entry actions
-            // ────────────────────────────────────────────────────
-            var globalWinner = await CheckGlobalTransitionsAsync(context, ct);
+            var globalWinner = await evaluator.EvaluateAsync(_sortedGlobalTransitions, context, ct);
             if (globalWinner != null)
             {
-                var result = await ExecuteTransitionAsync(globalWinner, _currentState, context, stateStartTime, 0, ct);
-                if (result != null) return result;
-                continue; // State changed, restart loop
+                var gtResult = await ExecuteTransitionAsync(globalWinner, _currentState, context, variableStore, stateStartTime, 0, ct);
+                if (gtResult != null) return gtResult;
+                continue; 
             }
 
             if (ct.IsCancellationRequested) break;
 
-            // ────────────────────────────────────────────────────
-            // 2. Execute Entry Actions sequentially
-            // ────────────────────────────────────────────────────
-            foreach (var action in _currentState.EntryActions)
-            {
-                if (ct.IsCancellationRequested) break;
-
-                var actionResult = await action.ExecuteAsync(context, ct);
-                if (!actionResult.Success && !action.ContinueOnError)
-                {
-                    return ActionResult.Fail($"Action '{action.DisplayName}' failed in state '{_currentState.Name}': {actionResult.Message}");
-                }
-            }
-
-            // IGNORE Jump in Entry Actions
-            if (!string.IsNullOrEmpty(context.JumpToId))
-            {
-                System.Diagnostics.Debug.WriteLine($"[StateMachine] Warning: Jump ignored in Entry actions of state '{_currentState.Name}'. Use Transitions instead.");
-                context.JumpToId = null;
-            }
+            var entryResult = await ActionExecutor.ExecuteActionsAsync(_currentState.EntryActions, context, _currentState.Name, true, ct);
+            if (!entryResult.Success) return entryResult;
 
             if (ct.IsCancellationRequested) break;
 
-            // ────────────────────────────────────────────────────
-            // 3. POLLING LOOP - check globals first, then state transitions
-            // ────────────────────────────────────────────────────
-            
-            // Pre-sort state transitions once (not per-poll)
-            _sortedStateTransitions = _currentState.Transitions
-                .OrderBy(t => t.IsFallback)
-                .ThenByDescending(t => t.Priority)
-                .ToArray();
+            _sortedStateTransitions = _currentState.Transitions.OrderBy(t => t.IsFallback).ThenByDescending(t => t.Priority).ToArray();
             
             bool transitioned = false;
             var transitionStartTimes = new Dictionary<StateTransition, DateTime>();
@@ -179,78 +90,43 @@ public class StateMachine
             int consecutiveFailures = 0;
             int pollCount = 0;
             
-            // Initialize tracking for all transitions (state + global)
-            foreach (var t in _currentState.Transitions)
-            {
-                transitionStartTimes[t] = DateTime.UtcNow;
-                transitionRetryCounts[t] = 0;
-            }
+            foreach (var t in _currentState.Transitions) { transitionStartTimes[t] = DateTime.UtcNow; transitionRetryCounts[t] = 0; }
             foreach (var gt in GlobalTransitions)
             {
-                if (!transitionStartTimes.ContainsKey(gt))
-                {
-                    transitionStartTimes[gt] = DateTime.UtcNow;
-                    transitionRetryCounts[gt] = 0;
-                }
+                if (!transitionStartTimes.ContainsKey(gt)) { transitionStartTimes[gt] = DateTime.UtcNow; transitionRetryCounts[gt] = 0; }
             }
 
             while (!ct.IsCancellationRequested && !transitioned)
             {
-                // Check STATE-level timeout
-                if (_currentState.MaxDurationMs > 0)
+                if (_currentState.MaxDurationMs > 0 && (DateTime.UtcNow - stateStartTime).TotalMilliseconds >= _currentState.MaxDurationMs)
                 {
-                    var elapsed = (DateTime.UtcNow - stateStartTime).TotalMilliseconds;
-                    if (elapsed >= _currentState.MaxDurationMs)
-                    {
-                        return ActionResult.Fail($"State '{_currentState.Name}' timed out after {_currentState.MaxDurationMs}ms.");
-                    }
+                    return ActionResult.Fail($"State '{_currentState.Name}' timed out after {_currentState.MaxDurationMs}ms.");
                 }
 
-                // ── GLOBAL TRANSITIONS (highest priority interrupts) ──
-                foreach (var globalTransition in _sortedGlobalTransitions!)
+                var pollGlobalWinner = await evaluator.EvaluateAsync(_sortedGlobalTransitions, context, ct);
+                if (pollGlobalWinner != null)
                 {
-                    if (ct.IsCancellationRequested) break;
-                    
-                    if (await globalTransition.ShouldTransitionAsync(context, ct))
-                    {
-                        var transitionElapsedMs = (DateTime.UtcNow - stateStartTime).TotalMilliseconds;
-                        
-                        LogTrace("GlobalInterrupt", _currentState.Name, globalTransition.ToState,
-                            details: "Global transition triggered", pollCount: pollCount, elapsedMs: transitionElapsedMs);
-
-                        var result = await ExecuteTransitionAsync(globalTransition, _currentState, context, stateStartTime, pollCount, ct);
-                        if (result != null) return result;
-                        transitioned = true;
-                        break;
-                    }
+                    var transitionElapsedMs = (DateTime.UtcNow - stateStartTime).TotalMilliseconds;
+                    LogTrace("GlobalInterrupt", _currentState.Name, pollGlobalWinner.ToState, "Global transition triggered", pollCount, transitionElapsedMs);
+                    var gResult = await ExecuteTransitionAsync(pollGlobalWinner, _currentState, context, variableStore, stateStartTime, pollCount, ct);
+                    if (gResult != null) return gResult;
+                    transitioned = true;
+                    break;
                 }
-                
+
                 if (transitioned) continue;
 
                 foreach (var transition in _sortedStateTransitions!)
                 {
-                    // Check TRANSITION-level timeout (skip if expired)
-                    if (transition.TimeoutMs > 0)
-                    {
-                        var transitionElapsed = (DateTime.UtcNow - transitionStartTimes[transition]).TotalMilliseconds;
-                        if (transitionElapsed >= transition.TimeoutMs)
-                        {
-                            continue;
-                        }
-                    }
-
-                    // Check retry limit (skip if exceeded)
-                    if (transition.MaxRetries > 0 && transitionRetryCounts[transition] >= transition.MaxRetries)
-                    {
-                        continue;
-                    }
+                    if (transition.TimeoutMs > 0 && (DateTime.UtcNow - transitionStartTimes[transition]).TotalMilliseconds >= transition.TimeoutMs) continue;
+                    if (transition.MaxRetries > 0 && transitionRetryCounts[transition] >= transition.MaxRetries) continue;
 
                     if (await transition.ShouldTransitionAsync(context, ct))
                     {
                         var transitionElapsedMs = (DateTime.UtcNow - stateStartTime).TotalMilliseconds;
-                        LogTrace("StateExit", _currentState.Name, transition.ToState, pollCount: pollCount, elapsedMs: transitionElapsedMs);
+                        LogTrace("StateExit", _currentState.Name, transition.ToState, null, pollCount: pollCount, elapsedMs: transitionElapsedMs);
 
-                        var result = await ExecuteTransitionAsync(transition, _currentState, context, stateStartTime, pollCount, ct);
+                        var result = await ExecuteTransitionAsync(transition, _currentState, context, variableStore, stateStartTime, pollCount, ct);
                         if (result != null) return result;
                         transitioned = true;
                         break;
@@ -261,34 +137,15 @@ public class StateMachine
                     }
                 }
 
-                // If no transition matched, use adaptive wait
                 if (!transitioned)
                 {
                     consecutiveFailures++;
                     pollCount++;
                     
-                    // Urgent mode: force fast polling for sub-100ms reaction (combat, alerts)
-                    int adaptiveInterval;
-                    if (context.IsUrgentMode)
-                    {
-                        adaptiveInterval = Math.Min(20, _currentState.FastCheckIntervalMs);
-                    }
-                    else
-                    {
-                        adaptiveInterval = consecutiveFailures >= _currentState.SlowdownThreshold
-                            ? _currentState.SlowCheckIntervalMs
-                            : _currentState.FastCheckIntervalMs;
-                    }
+                    int adaptiveInterval = context.IsUrgentMode ? Math.Min(20, _currentState.FastCheckIntervalMs) : (consecutiveFailures >= _currentState.SlowdownThreshold ? _currentState.SlowCheckIntervalMs : _currentState.FastCheckIntervalMs);
                     
                     var waitTimeMs = CalculateOptimalWaitTime(_currentState, transitionStartTimes, stateStartTime, adaptiveInterval);
-                    try
-                    {
-                        await context.EventSignal.WaitAsync(waitTimeMs, ct);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
+                    try { await context.EventSignal.WaitAsync(waitTimeMs, ct); } catch (OperationCanceledException) { break; }
                 }
                 else
                 {
@@ -300,133 +157,57 @@ public class StateMachine
         return ct.IsCancellationRequested ? ActionResult.Fail("Cancelled") : ActionResult.Ok("Completed");
     }
 
-    // ════════════════════════════════════════════════════════════
-    // Sequential Global Transition Check
-    // ════════════════════════════════════════════════════════════
-
-    /// <summary>
-    /// Check all global transitions sequentially. Returns the first matching transition, or null.
-    /// </summary>
-    private async Task<StateTransition?> CheckGlobalTransitionsAsync(ScriptContext context, CancellationToken ct)
-    {
-        foreach (var gt in _sortedGlobalTransitions!)
-        {
-            if (ct.IsCancellationRequested) return null;
-
-            try
-            {
-                if (await gt.ShouldTransitionAsync(context, ct))
-                {
-                    return gt;
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                return null;
-            }
-            catch (Exception ex)
-            {
-                LogTrace("GlobalCheckError", _currentState?.Name ?? "?", gt.ToState,
-                    details: $"Global transition check failed: {ex.Message}");
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Execute a transition: run exit actions, transition actions, and change state.
-    /// Returns ActionResult if the machine should stop (END or error), null to continue.
-    /// </summary>
-    private async Task<ActionResult?> ExecuteTransitionAsync(
-        StateTransition transition,
-        State fromState,
-        ScriptContext context,
-        DateTime stateStartTime,
-        int pollCount,
-        CancellationToken ct)
+    private async Task<ActionResult?> ExecuteTransitionAsync(StateTransition transition, State fromState, ScriptContext context, IVariableStore variableStore, DateTime stateStartTime, int pollCount, CancellationToken ct)
     {
         var transitionElapsedMs = (DateTime.UtcNow - stateStartTime).TotalMilliseconds;
 
-        // Execute Exit Actions
         foreach (var exitAction in fromState.ExitActions)
         {
             if (ct.IsCancellationRequested) break;
             await exitAction.ExecuteAsync(context, ct);
         }
+        
+        variableStore.ClearLocalVariables(fromState.Name);
 
-        // Clear scoped local variables
-        context.ClearLocalVariables(fromState.Name);
-
-        // Ignore Jump in Exit Actions
         if (!string.IsNullOrEmpty(context.JumpToId))
         {
             System.Diagnostics.Debug.WriteLine($"[StateMachine] Warning: Jump ignored in Exit actions of state '{fromState.Name}'. Use Transitions instead.");
             context.JumpToId = null;
         }
 
-        // Handle END state
         if (string.Equals(transition.ToState, "END", StringComparison.OrdinalIgnoreCase))
         {
-            foreach (var transitionAction in transition.OnTransitionActions)
+            foreach (var action in transition.OnTransitionActions)
             {
                 if (ct.IsCancellationRequested) break;
-                await transitionAction.ExecuteAsync(context, ct);
+                await action.ExecuteAsync(context, ct);
             }
             LogTrace("TransitionTrigger", fromState.Name, "END", details: "State machine completed", elapsedMs: transitionElapsedMs);
             return ActionResult.Ok("State Machine completed (reached END state).");
         }
 
-        // Find next state
         var nextState = FindState(transition.ToState);
-        if (nextState == null)
-        {
-            return ActionResult.Fail($"Target state '{transition.ToState}' not found.");
-        }
+        if (nextState == null) return ActionResult.Fail($"Target state '{transition.ToState}' not found.");
 
-        // Execute OnTransitionActions
-        foreach (var transitionAction in transition.OnTransitionActions)
+        foreach (var action in transition.OnTransitionActions)
         {
             if (ct.IsCancellationRequested) break;
-            await transitionAction.ExecuteAsync(context, ct);
+            await action.ExecuteAsync(context, ct);
         }
 
-        LogTrace("TransitionTrigger", fromState.Name, nextState.Name,
-            pollCount: pollCount, elapsedMs: transitionElapsedMs);
-
+        LogTrace("TransitionTrigger", fromState.Name, nextState.Name, null, pollCount: pollCount, elapsedMs: transitionElapsedMs);
         Metrics.RecordStateTime(fromState.Name, transitionElapsedMs, pollCount);
         Metrics.RecordTransition(fromState.Name, nextState.Name);
 
         _currentState = nextState;
-        return null; // Continue loop
+        return null;
     }
 
-    // ════════════════════════════════════════════════════════════
-    // Helpers
-    // ════════════════════════════════════════════════════════════
+    private State? FindState(string? name) => !string.IsNullOrEmpty(name) && _stateLookup != null && _stateLookup.TryGetValue(name, out var state) ? state : null;
 
-    /// <summary>
-    /// O(1) state lookup using pre-built dictionary.
-    /// </summary>
-    private State? FindState(string? name)
+    private int CalculateOptimalWaitTime(State state, Dictionary<StateTransition, DateTime> transitionStartTimes, DateTime stateStartTime, int adaptiveInterval = 100)
     {
-        if (string.IsNullOrEmpty(name)) return null;
-        return _stateLookup != null && _stateLookup.TryGetValue(name, out var state) ? state : null;
-    }
-
-    /// <summary>
-    /// Calculate optimal wait time based on transition types and timeouts.
-    /// </summary>
-    private int CalculateOptimalWaitTime(
-        State state, 
-        Dictionary<StateTransition, DateTime> transitionStartTimes,
-        DateTime stateStartTime,
-        int adaptiveInterval = 100)
-    {
-        bool allEventBased = state.Transitions.All(t => 
-            t.TransitionType == TransitionType.Event || 
-            t.TransitionType == TransitionType.Immediate);
-        
+        bool allEventBased = state.Transitions.All(t => t.TransitionType == TransitionType.Event || t.TransitionType == TransitionType.Immediate);
         if (allEventBased)
         {
             if (state.MaxDurationMs > 0)
@@ -438,50 +219,28 @@ public class StateMachine
         }
         
         int minWait = adaptiveInterval;
-        
         foreach (var t in state.Transitions.Where(t => t.TimeoutMs > 0))
         {
-            if (!transitionStartTimes.TryGetValue(t, out var startTime))
-                continue;
-                
+            if (!transitionStartTimes.TryGetValue(t, out var startTime)) continue;
             var remaining = t.TimeoutMs - (int)(DateTime.UtcNow - startTime).TotalMilliseconds;
-            if (remaining > 0 && remaining < minWait)
-            {
-                minWait = remaining;
-            }
+            if (remaining > 0 && remaining < minWait) minWait = remaining;
         }
         
         if (state.MaxDurationMs > 0)
         {
             var stateRemaining = state.MaxDurationMs - (int)(DateTime.UtcNow - stateStartTime).TotalMilliseconds;
-            if (stateRemaining > 0 && stateRemaining < minWait)
-            {
-                minWait = stateRemaining;
-            }
+            if (stateRemaining > 0 && stateRemaining < minWait) minWait = stateRemaining;
         }
-        
         return Math.Max(10, minWait);
     }
 
-    /// <summary>
-    /// Log a trace entry and fire OnTrace event.
-    /// </summary>
     private void LogTrace(string eventType, string stateName, string? toState = null, string? details = null, int pollCount = 0, double elapsedMs = 0)
     {
         Trace.Log(eventType, stateName, toState, details, pollCount, elapsedMs);
         
         if (OnTrace != null && Trace.IsEnabled)
         {
-            var entry = new StateMachineTraceEntry
-            {
-                EventType = eventType,
-                StateName = stateName,
-                TransitionTo = toState,
-                Details = details,
-                PollCount = pollCount,
-                ElapsedMs = elapsedMs
-            };
-            OnTrace.Invoke(this, entry);
+            OnTrace.Invoke(this, new StateMachineTraceEntry { EventType = eventType, StateName = stateName, TransitionTo = toState, Details = details, PollCount = pollCount, ElapsedMs = elapsedMs });
         }
     }
 }

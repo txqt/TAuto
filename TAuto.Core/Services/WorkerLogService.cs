@@ -11,7 +11,7 @@ namespace TAuto.Core.Services;
 /// Thread-safe: uses ConcurrentDictionary for writer lookup + lock per writer.
 /// Designed to be wired to ProcessManagerService.OnWorkerLog.
 /// </summary>
-public class WorkerLogService : IDisposable
+public class WorkerLogService : ILogStreamer
 {
     private readonly string _logDirectory;
     private readonly ConcurrentDictionary<string, StreamWriter> _writers = new();

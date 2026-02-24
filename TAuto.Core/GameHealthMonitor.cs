@@ -1,6 +1,6 @@
 using System;
 using System.Diagnostics;
-using System.Windows.Media.Imaging;
+using TAuto.Core.Imaging;
 
 namespace TAuto.Core;
 
@@ -60,7 +60,7 @@ public class GameHealthMonitor
     /// Call this after each screen capture attempt.
     /// Returns true if game is healthy, false if intervention is needed.
     /// </summary>
-    public bool ReportCaptureResult(BitmapSource? capture)
+    public bool ReportCaptureResult(IImage? capture)
     {
         if (capture == null)
         {
@@ -140,37 +140,37 @@ public class GameHealthMonitor
     }
 
     /// <summary>
-    /// Fast, low-cost hash of a BitmapSource for frozen frame detection.
+    /// Fast, low-cost hash of an IImage for frozen frame detection.
     /// Samples a grid of pixels rather than hashing the entire image.
     /// </summary>
-    private static uint ComputeSimpleHash(BitmapSource source)
+    private static uint ComputeSimpleHash(IImage source)
     {
         try
         {
-            int w = source.PixelWidth;
-            int h = source.PixelHeight;
-            int stride = (w * 4); // Assume 32bpp
+            int w = source.Width;
+            int h = source.Height;
+            int stride = (w * 4); // Assume 32bpp BGRA
 
             // Sample 16 evenly-spaced pixels
             uint hash = 2166136261u; // FNV-1a offset basis
             int stepX = Math.Max(1, w / 4);
             int stepY = Math.Max(1, h / 4);
 
-            // Read a small portion — just enough for hash, not the whole frame
-            byte[] row = new byte[stride];
+            byte[] pixels = source.GetPixelData();
+            
             for (int y = stepY; y < h; y += stepY)
             {
-                source.CopyPixels(new System.Windows.Int32Rect(0, y, w, 1), row, stride, 0);
+                int rowOffset = y * stride;
                 for (int x = stepX; x < w; x += stepX)
                 {
-                    int offset = x * 4;
-                    if (offset + 2 < row.Length)
+                    int offset = rowOffset + (x * 4);
+                    if (offset + 2 < pixels.Length)
                     {
-                        hash ^= row[offset];
+                        hash ^= pixels[offset];
                         hash *= 16777619u;
-                        hash ^= row[offset + 1];
+                        hash ^= pixels[offset + 1];
                         hash *= 16777619u;
-                        hash ^= row[offset + 2];
+                        hash ^= pixels[offset + 2];
                         hash *= 16777619u;
                     }
                 }

@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
-using System.Windows.Media.Imaging;
+using TAuto.Core.Imaging;
 
 namespace TAuto.Core;
 
@@ -15,11 +15,11 @@ public class ScreenCaptureManager
     private readonly IDeviceController _device;
     private readonly object _lock = new();
     
-    private BitmapSource? _lastScreenCapture;
+    private IImage? _lastScreenCapture;
     private DateTime? _lastCaptureTime;
     private int _consecutiveTimeouts = 0;
 
-    public BitmapSource? LastScreenCapture 
+    public IImage? LastScreenCapture 
     { 
         get { lock (_lock) { return _lastScreenCapture; } }
         private set { lock (_lock) { _lastScreenCapture = value; } }
@@ -40,7 +40,7 @@ public class ScreenCaptureManager
     /// </summary>
     public int MinCaptureIntervalMs { get; set; } = 50;
 
-    public System.Windows.Point? LastFoundImageLocation { get; set; }
+    public System.Drawing.Point? LastFoundImageLocation { get; set; }
 
     /// <summary>
     /// Hard timeout (ms) for a single screen capture call.

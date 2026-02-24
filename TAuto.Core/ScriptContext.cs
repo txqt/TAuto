@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Media.Imaging;
+using TAuto.Core.Imaging;
 
 namespace TAuto.Core;
 
@@ -41,7 +41,7 @@ public class ScriptContext
     
     public Guid SessionId { get; } = Guid.NewGuid(); // Unique session ID
     
-    public BitmapSource? LastScreenCapture => _captureManager.LastScreenCapture;
+    public IImage? LastScreenCapture => _captureManager.LastScreenCapture;
     public DateTime? LastCaptureTime => _captureManager.LastCaptureTime;
     
     public int CaptureIntervalMs 
@@ -60,7 +60,7 @@ public class ScriptContext
         set => _captureManager.CaptureTimeoutMs = value;
     }
 
-    public System.Windows.Point? LastFoundImageLocation 
+    public System.Drawing.Point? LastFoundImageLocation 
     { 
         get => _captureManager.LastFoundImageLocation;
         set => _captureManager.LastFoundImageLocation = value;

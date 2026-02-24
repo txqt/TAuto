@@ -8,91 +8,76 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using AutoBot.Shared.Ipc;
 
 namespace TAuto.Core.Services;
 
 /// <summary>
 /// Manages Worker processes — spawn, monitor, restart, IPC.
-/// 
-/// Lifecycle per Worker:
-/// 1. CreateWorkerAsync() → spawns AutoBot.Worker.exe, assigns to Job Object.
-/// 2. Worker connects via Named Pipe → Manager sends "start" command.
-/// 3. Worker sends heartbeats → Manager tracks health.
-/// 4. Worker exits → Manager restarts if crash (auto-recovery).
-/// 5. StopWorkerAsync() → graceful shutdown with timeout → hard kill.
+/// Refactored to compose single-responsibility components.
 /// </summary>
 public class ProcessManagerService : IDisposable
 {
     private static readonly Random _random = new();
-    private readonly JobObject _jobObject;
-    private readonly ConcurrentDictionary<string, WorkerProcess> _workers = new();
+    
+    private readonly IProcessSpawner _processSpawner;
+    private readonly INamedPipeRegistry _pipeRegistry;
+    private readonly ICrashLoopProtector _crashProtector;
+    private readonly IHeartbeatMonitor _heartbeatMonitor;
+    private readonly ILogStreamer _logStreamer;
     private readonly ComputeTokenService _tokenService;
-    private readonly WorkerLogService _workerLogService;
+    private readonly ILogger<ProcessManagerService>? _logger;
+    
+    private readonly ConcurrentDictionary<string, WorkerProcess> _workers = new();
     private bool _disposed;
 
-    // ── Crash Loop Protection ──
-    private readonly ConcurrentDictionary<string, List<DateTime>> _crashHistory = new();
-    private const int MaxCrashesBeforeStop = 5;
-    private static readonly TimeSpan CrashWindowDuration = TimeSpan.FromSeconds(60);
-
-    /// <summary>
-    /// Path to the Worker executable.
-    /// </summary>
+    /// <summary>Path to the Worker executable.</summary>
     public string WorkerExePath { get; set; }
 
-    /// <summary>
-    /// Time to wait before restarting a crashed Worker.
-    /// </summary>
-    public int RestartDelayMs { get; set; } = 5000;
+    /// <summary>Time to wait before restarting a crashed Worker.</summary>
+    public int RestartDelayMs { get; set; } = AutomationDefaults.DefaultWorkerRestartDelayMs;
 
-    /// <summary>
-    /// Timeout for graceful shutdown before hard-kill.
-    /// </summary>
-    public int ShutdownTimeoutMs { get; set; } = 5000;
+    /// <summary>Timeout for graceful shutdown before hard-kill.</summary>
+    public int ShutdownTimeoutMs { get; set; } = AutomationDefaults.DefaultWorkerShutdownTimeoutMs;
 
-    /// <summary>
-    /// Enable auto-restart of crashed Workers.
-    /// </summary>
+    /// <summary>Enable auto-restart of crashed Workers.</summary>
     public bool AutoRestart { get; set; } = true;
 
-    /// <summary>
-    /// Fired when a Worker sends a log entry.
-    /// </summary>
+    // Events
     public event Action<string, WorkerLogEntry>? OnWorkerLog;
-
-    /// <summary>
-    /// Fired when a Worker's status changes (started, stopped, crashed, restarting).
-    /// </summary>
     public event Action<string, string>? OnWorkerStatusChanged;
-
-    /// <summary>
-    /// Fired when a Worker sends a heartbeat.
-    /// </summary>
     public event Action<string, WorkerHeartbeat>? OnWorkerHeartbeat;
 
-    public ProcessManagerService(ComputeTokenService? tokenService = null)
+    public ProcessManagerService(
+        IProcessSpawner? processSpawner = null,
+        INamedPipeRegistry? pipeRegistry = null,
+        ICrashLoopProtector? crashProtector = null,
+        IHeartbeatMonitor? heartbeatMonitor = null,
+        ILogStreamer? logStreamer = null,
+        ComputeTokenService? tokenService = null,
+        ILogger<ProcessManagerService>? logger = null)
     {
-        // Use an anonymous Job Object to prevent Win32Exception (5) Access Denied
-        // if a previous instance left zombie processes holding the named handle.
-        _jobObject = new JobObject();
+        _processSpawner = processSpawner ?? new DefaultProcessSpawner();
+        _pipeRegistry = pipeRegistry ?? new DefaultNamedPipeRegistry();
+        _crashProtector = crashProtector ?? new DefaultCrashLoopProtector();
+        _heartbeatMonitor = heartbeatMonitor ?? new DefaultHeartbeatMonitor();
+        _logStreamer = logStreamer ?? new WorkerLogService();
         _tokenService = tokenService ?? new ComputeTokenService();
-        _workerLogService = new WorkerLogService();
+        _logger = logger;
 
         // Wire structured per-worker logging
         OnWorkerLog += (workerId, log) =>
-            _workerLogService.WriteLog(workerId, log.Level ?? "INFO", log.Message ?? "");
+            _logStreamer.WriteLog(workerId, log.Level ?? "INFO", log.Message ?? "");
         OnWorkerStatusChanged += (workerId, status) =>
-            _workerLogService.WriteStatus(workerId, status);
+            _logStreamer.WriteStatus(workerId, status);
+        OnWorkerHeartbeat += (workerId, hb) =>
+            _heartbeatMonitor.RecordHeartbeat(workerId, hb);
 
-        // Default: same directory as Manager executable
         var baseDir = AppDomain.CurrentDomain.BaseDirectory;
         WorkerExePath = Path.Combine(baseDir, "AutoBot.Worker.exe");
     }
 
-    /// <summary>
-    /// Spawn a new Worker process and connect via Named Pipe.
-    /// </summary>
     public async Task<string> StartWorkerAsync(WorkerStartupArgs startupArgs, string botFolder)
     {
         var workerId = string.IsNullOrEmpty(startupArgs.WorkerId) 
@@ -104,16 +89,11 @@ public class ProcessManagerService : IDisposable
 
         OnWorkerStatusChanged?.Invoke(workerId, "starting");
 
-        // ── Step 1: Create Named Pipe Server ──
+        // 1. Create Named Pipe Server
         NamedPipeServerStream pipeServer;
         try
         {
-            pipeServer = new NamedPipeServerStream(
-                pipeName,
-                PipeDirection.InOut,
-                maxNumberOfServerInstances: NamedPipeServerStream.MaxAllowedServerInstances,
-                PipeTransmissionMode.Byte,
-                PipeOptions.Asynchronous);
+            pipeServer = _pipeRegistry.CreatePipeServer(pipeName);
         }
         catch (Exception ex)
         {
@@ -121,59 +101,36 @@ public class ProcessManagerService : IDisposable
             throw;
         }
 
-        // ── Step 2: Spawn Worker Process ──
-        if (!File.Exists(WorkerExePath))
-        {
-            pipeServer.Dispose();
-            throw new FileNotFoundException($"Worker executable not found: {WorkerExePath}");
-        }
-
-        var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = WorkerExePath,
-                Arguments = $"--pipe {pipeName} --id {workerId}",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = botFolder
-            },
-            EnableRaisingEvents = true
-        };
-
+        // 2. Spawn Worker Process
+        Process process;
         try
         {
-            process.Start();
+            process = _processSpawner.SpawnWorkerProcess(WorkerExePath, $"--pipe {pipeName} --id {workerId}", botFolder);
         }
         catch (Exception ex)
         {
             pipeServer.Dispose();
+            _logger?.LogError($"Error spawning worker: {ex.Message}");
             throw;
         }
 
-        try { _jobObject.AssignProcess(process); } catch { }
-
-        // ── Step 3: Wait for Worker to connect (Task.WhenAny — CancellationToken doesn't cancel pipe I/O on Windows) ──
+        // 3. Wait for Worker to connect
+        try
         {
-            var connectTask = pipeServer.WaitForConnectionAsync(CancellationToken.None);
-            var timeoutTask = Task.Delay(10000);
-            if (await Task.WhenAny(connectTask, timeoutTask) != connectTask)
-            {
-                try { process.Kill(); } catch { }
-                pipeServer.Dispose();
-                throw new TimeoutException($"Worker '{workerId}' failed to connect within 10s");
-            }
-            await connectTask;
+            using var connectCts = new CancellationTokenSource(AutomationDefaults.DefaultWorkerConnectTimeoutMs);
+            await _pipeRegistry.WaitForConnectionAsync(pipeServer, AutomationDefaults.DefaultWorkerConnectTimeoutMs, connectCts.Token);
+        }
+        catch (Exception ex)
+        {
+            _processSpawner.KillProcess(process);
+            pipeServer.Dispose();
+            throw new TimeoutException($"Worker '{workerId}' failed to connect: {ex.Message}");
         }
 
-        // ── Create WorkerProcess tracking object ──
-        // IMPORTANT: Use UTF8 *without BOM* and set AutoFlush AFTER construction.
-        // Setting AutoFlush=true in an initializer calls Flush() immediately,
-        // which writes the UTF-8 BOM and calls FlushFileBuffers on the pipe — deadlock.
+        // 4. Create WorkerProcess tracking object
         var noBomUtf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         var reader = new StreamReader(pipeServer, noBomUtf8, detectEncodingFromByteOrderMarks: false);
-        var writer = new StreamWriter(pipeServer, noBomUtf8);
-        writer.AutoFlush = true;
+        var writer = new StreamWriter(pipeServer, noBomUtf8) { AutoFlush = true };
 
         var worker = new WorkerProcess
         {
@@ -188,15 +145,14 @@ public class ProcessManagerService : IDisposable
 
         _workers[workerId] = worker;
 
-        // ── Step 4: Wait for Ready signal ──
+        // 5. Wait for Ready signal
         {
             var readyTask = worker.Reader.ReadLineAsync();
-            var timeoutTask = Task.Delay(10000);
+            var timeoutTask = Task.Delay(AutomationDefaults.DefaultWorkerConnectTimeoutMs);
             if (await Task.WhenAny(readyTask, timeoutTask) != readyTask)
             {
                 OnWorkerStatusChanged?.Invoke(workerId, "TIMEOUT: ready signal");
-                try { process.Kill(); } catch { }
-                pipeServer.Dispose();
+                _processSpawner.KillProcess(process);
                 await RemoveWorkerAsync(workerId);
                 throw new TimeoutException($"Worker '{workerId}' failed to send Ready within 10s");
             }
@@ -206,58 +162,41 @@ public class ProcessManagerService : IDisposable
 
             if (readyMsg?.Type != IpcMessageTypes.Ready)
             {
-                Debug.WriteLine($"[Manager] Worker '{workerId}' didn't send Ready. Got: {readyMsg?.Type}");
+                _logger?.LogWarning($"Worker '{workerId}' didn't send Ready. Got: {readyMsg?.Type}");
             }
         }
 
-        // ── Step 5: Send start command ──
+        // 6. Send start command
         var startMsg = IpcMessage.Create(IpcMessageTypes.Start, startupArgs);
         await worker.Writer.WriteLineAsync(startMsg.ToJson());
 
         OnWorkerStatusChanged?.Invoke(workerId, "running");
 
-        // ── Start background message listener ──
+        // Start background message listener
         _ = Task.Run(() => ListenToWorkerAsync(worker), worker.Cts.Token);
 
-        // ── Monitor process exit (crash recovery with Crash Loop Protection) ──
+        // Monitor process exit (crash recovery)
         process.Exited += async (_, _) =>
         {
-            // CRITICAL: This is async void (required by event signature).
-            // Any unhandled exception here would crash the entire App.
-            // Wrap everything in try-catch for safety.
             try
             {
                 var exitCode = process.ExitCode;
-                Debug.WriteLine($"[Manager] Worker '{workerId}' exited with code {exitCode}");
+                _logger?.LogInformation($"Worker '{workerId}' exited with code {exitCode}");
 
-                // Release any tokens held by this worker to prevent leaks
                 _tokenService.ReleaseAllForWorker(workerId);
-
                 bool isCrash = exitCode != 0 && exitCode != -1;
+                
                 OnWorkerStatusChanged?.Invoke(workerId, isCrash ? "crashed" : "stopped");
-
-                // Clean up
                 await RemoveWorkerAsync(workerId);
 
-                // Auto-restart only on crashes (not graceful stops)
                 if (AutoRestart && isCrash && !_disposed)
                 {
-                    // ── Crash Loop Protection ──
-                    var history = _crashHistory.GetOrAdd(workerId, _ => new List<DateTime>());
-                    lock (history)
+                    bool isLooping = _crashProtector.RegisterCrashAndCheckIfLooping(workerId);
+                    if (isLooping)
                     {
-                        var now = DateTime.UtcNow;
-                        // Prune old entries outside the window
-                        history.RemoveAll(t => (now - t) > CrashWindowDuration);
-                        history.Add(now);
-
-                        if (history.Count > MaxCrashesBeforeStop)
-                        {
-                            Debug.WriteLine($"[Manager] CRASH LOOP DETECTED for '{workerId}': " +
-                                $"{history.Count} crashes in {CrashWindowDuration.TotalSeconds}s. Stopping auto-restart.");
-                            OnWorkerStatusChanged?.Invoke(workerId, "crash_loop_stopped");
-                            return;
-                        }
+                        _logger?.LogError($"CRASH LOOP DETECTED for '{workerId}'. Stopping auto-restart.");
+                        OnWorkerStatusChanged?.Invoke(workerId, "crash_loop_stopped");
+                        return;
                     }
 
                     OnWorkerStatusChanged?.Invoke(workerId, "restarting");
@@ -272,7 +211,7 @@ public class ProcessManagerService : IDisposable
                         }
                         catch (Exception ex)
                         {
-                            Debug.WriteLine($"[Manager] Failed to restart Worker '{workerId}': {ex.Message}");
+                            _logger?.LogError($"Failed to restart Worker '{workerId}': {ex.Message}");
                             OnWorkerStatusChanged?.Invoke(workerId, "restart_failed");
                         }
                     }
@@ -280,7 +219,7 @@ public class ProcessManagerService : IDisposable
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[Manager] CRITICAL: Worker '{workerId}' Exited handler failed: {ex.Message}");
+                _logger?.LogCritical($"CRITICAL: Worker '{workerId}' Exited handler failed: {ex.Message}");
                 OnWorkerStatusChanged?.Invoke(workerId, $"handler_error: {ex.Message}");
             }
         };
@@ -288,37 +227,29 @@ public class ProcessManagerService : IDisposable
         return workerId;
     }
 
-    /// <summary>
-    /// Gracefully stop a Worker (with timeout → hard kill).
-    /// </summary>
     public async Task StopWorkerAsync(string workerId)
     {
         _workers.TryGetValue(workerId, out WorkerProcess? worker);
-
         if (worker == null) return;
 
         OnWorkerStatusChanged?.Invoke(workerId, "stopping");
 
         try
         {
-            // 1. Send stop command
             var stopMsg = IpcMessage.Create(IpcMessageTypes.Stop);
             await worker.Writer.WriteLineAsync(stopMsg.ToJson());
 
-            // 2. Wait for process to exit gracefully
             var exited = worker.Process.WaitForExit(ShutdownTimeoutMs);
-
             if (!exited)
             {
-                // 3. Hard-kill after timeout
-                Debug.WriteLine($"[Manager] Worker '{workerId}' didn't stop gracefully. Killing.");
-                worker.Process.Kill();
+                _logger?.LogWarning($"Worker '{workerId}' didn't stop gracefully. Killing.");
+                _processSpawner.KillProcess(worker.Process);
             }
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Manager] Error stopping Worker '{workerId}': {ex.Message}");
-            try { worker.Process.Kill(); } catch { }
+            _logger?.LogError($"Error stopping Worker '{workerId}': {ex.Message}");
+            _processSpawner.KillProcess(worker.Process);
         }
         finally
         {
@@ -326,40 +257,24 @@ public class ProcessManagerService : IDisposable
         }
     }
 
-    /// <summary>
-    /// Stop all Workers gracefully.
-    /// </summary>
     public async Task StopAllWorkersAsync()
     {
         var workerIds = _workers.Keys.ToList();
-
-        // Disable auto-restart during shutdown
         AutoRestart = false;
 
-        // Parallel graceful stop
         var stopTasks = workerIds.Select(id => StopWorkerAsync(id));
         await Task.WhenAll(stopTasks);
     }
 
-    /// <summary>
-    /// Get current status of all Workers.
-    /// </summary>
     public List<(string Id, bool IsRunning, long MemoryBytes)> GetWorkerStatuses()
     {
         return _workers.Values.Select(w => (
             w.WorkerId,
             !w.Process.HasExited,
-            w.LastHeartbeat?.MemoryBytes ?? 0
+            _heartbeatMonitor.GetLastHeartbeat(w.WorkerId)?.MemoryBytes ?? 0
         )).ToList();
     }
 
-    // ════════════════════════════════════════════════════════════
-    // Internal
-    // ════════════════════════════════════════════════════════════
-
-    /// <summary>
-    /// Background loop: listen for messages from a Worker.
-    /// </summary>
     private async Task ListenToWorkerAsync(WorkerProcess worker)
     {
         try
@@ -378,8 +293,6 @@ public class ProcessManagerService : IDisposable
                         var hb = msg.GetPayload<WorkerHeartbeat>();
                         if (hb != null)
                         {
-                            worker.LastHeartbeat = hb;
-                            worker.LastHeartbeatTime = DateTime.UtcNow;
                             OnWorkerHeartbeat?.Invoke(worker.WorkerId, hb);
                         }
                         break;
@@ -393,7 +306,7 @@ public class ProcessManagerService : IDisposable
                         break;
 
                     case IpcMessageTypes.Exiting:
-                        Debug.WriteLine($"[Manager] Worker '{worker.WorkerId}' sent exit notification");
+                        _logger?.LogInformation($"Worker '{worker.WorkerId}' sent exit notification");
                         break;
 
                     case IpcMessageTypes.RequestToken:
@@ -413,11 +326,10 @@ public class ProcessManagerService : IDisposable
         catch (IOException) { }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Manager] Listener error for '{worker.WorkerId}': {ex.Message}");
+            _logger?.LogError($"Listener error for '{worker.WorkerId}': {ex.Message}");
         }
         finally
         {
-            // Ensure tokens are released if listener exits unexpectedly
             _tokenService.ReleaseAllForWorker(worker.WorkerId);
         }
     }
@@ -427,10 +339,13 @@ public class ProcessManagerService : IDisposable
         if (_workers.TryRemove(workerId, out var worker))
         {
             worker.Cts.Cancel();
-            // Pipe may already be broken/closed from Worker side — safe to ignore
             try { worker.Writer?.Dispose(); } catch { }
             try { worker.Reader?.Dispose(); } catch { }
             try { worker.PipeServer?.Dispose(); } catch { }
+            
+            _heartbeatMonitor.Clear(workerId);
+            _crashProtector.ClearHistory(workerId);
+            _logStreamer.CloseWriter(workerId);
         }
         return Task.CompletedTask;
     }
@@ -440,11 +355,11 @@ public class ProcessManagerService : IDisposable
         if (_disposed) return;
         _disposed = true;
 
-        // Kill all Workers via Job Object (OS guarantee)
-        _jobObject.TerminateAll();
-        _jobObject.Dispose();
+        _processSpawner.TerminateAll();
+        if (_processSpawner is IDisposable dispSpawner) dispSpawner.Dispose();
+        
         _tokenService.Dispose();
-        _workerLogService.Dispose();
+        _logStreamer.Dispose();
 
         foreach (var worker in _workers.Values)
         {
@@ -456,10 +371,6 @@ public class ProcessManagerService : IDisposable
         _workers.Clear();
     }
 
-    // ════════════════════════════════════════════════════════════
-    // Internal Types
-    // ════════════════════════════════════════════════════════════
-
     private class WorkerProcess
     {
         public string WorkerId { get; set; } = string.Empty;
@@ -469,7 +380,5 @@ public class ProcessManagerService : IDisposable
         public StreamWriter Writer { get; set; } = null!;
         public WorkerStartupArgs StartupArgs { get; set; } = null!;
         public CancellationTokenSource Cts { get; set; } = null!;
-        public WorkerHeartbeat? LastHeartbeat { get; set; }
-        public DateTime? LastHeartbeatTime { get; set; }
     }
 }

@@ -4,7 +4,6 @@
         <TargetFramework>net8.0-windows</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
-        <UseWPF>true</UseWPF>
         <RootNamespace>TAuto.Automation</RootNamespace>
         <AssemblyName>TAuto.Automation</AssemblyName>
         <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
@@ -12,6 +11,10 @@
 
     <ItemGroup>
         <ProjectReference Include="..\TAuto.Core\TAuto.Core.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.3" />
     </ItemGroup>
 
 </Project>

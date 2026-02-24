@@ -1,9 +1,12 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Media.Imaging;
 using TAuto.Core;
+using TAuto.Core.Models;
+using TAuto.Core.Imaging;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 
 namespace TAuto.Automation.Actions;
 
@@ -103,7 +106,7 @@ public class ExtractTextAction : ActionBase
             return ActionResult.Fail("Failed to capture screen");
 
         // 2. Crop Image
-        BitmapSource source = context.LastScreenCapture;
+        IImage source = context.LastScreenCapture;
         if (Width > 0 && Height > 0)
         {
             try 
@@ -111,13 +114,22 @@ public class ExtractTextAction : ActionBase
                 // Ensure bounds
                 int rawX = Math.Max(0, X);
                 int rawY = Math.Max(0, Y);
-                if (rawX + Width > source.PixelWidth) Width = source.PixelWidth - rawX;
-                if (rawY + Height > source.PixelHeight) Height = source.PixelHeight - rawY;
+                if (rawX + Width > source.Width) Width = source.Width - rawX;
+                if (rawY + Height > source.Height) Height = source.Height - rawY;
 
                 if (Width <= 0 || Height <= 0)
                     return ActionResult.Fail("Invalid crop region");
 
-                source = new CroppedBitmap(source, new Int32Rect(rawX, rawY, Width, Height));
+                // Crop using ImageSharp if available (if using ImageWrapper)
+                if (source is ImageWrapper wrapper)
+                {
+                    var cropped = wrapper.InnerImage.Clone(x => x.Crop(new Rectangle(rawX, rawY, Width, Height)));
+                    source = new ImageWrapper(cropped);
+                }
+                else
+                {
+                    return ActionResult.Fail("Source image does not support cropping.");
+                }
 
                 // Debug: save images to verify coordinates
                 if (!string.IsNullOrEmpty(DebugSavePath))
@@ -127,9 +139,9 @@ public class ExtractTextAction : ActionBase
                         System.IO.Directory.CreateDirectory(DebugSavePath);
                         var ts = DateTime.Now.ToString("HHmmss");
                         // Save full screenshot
-                        SaveBitmapSource(context.LastScreenCapture, System.IO.Path.Combine(DebugSavePath, $"{ts}_{OutputVariable}_full_{context.LastScreenCapture.PixelWidth}x{context.LastScreenCapture.PixelHeight}.png"));
+                        context.LastScreenCapture.Save(System.IO.Path.Combine(DebugSavePath, $"{ts}_{OutputVariable}_full_{context.LastScreenCapture.Width}x{context.LastScreenCapture.Height}.png"));
                         // Save cropped region
-                        SaveBitmapSource(source, System.IO.Path.Combine(DebugSavePath, $"{ts}_{OutputVariable}_crop_{rawX},{rawY}_{Width}x{Height}.png"));
+                        source.Save(System.IO.Path.Combine(DebugSavePath, $"{ts}_{OutputVariable}_crop_{rawX},{rawY}_{Width}x{Height}.png"));
                     }
                     catch { /* ignore debug save errors */ }
                 }
@@ -167,7 +179,7 @@ public class ExtractTextAction : ActionBase
             if (LogResult)
                 context.Logger?.Info($"OCR [{OutputVariable}]: {text}");
 
-            return ActionResult.Ok(new Point(X, Y)); // Return location
+            return ActionResult.Ok(new System.Drawing.Point(X, Y)); // Return location
         }
         catch (Exception ex)
         {
@@ -175,11 +187,5 @@ public class ExtractTextAction : ActionBase
         }
     }
 
-    private static void SaveBitmapSource(BitmapSource bmp, string path)
-    {
-        using var fs = new System.IO.FileStream(path, System.IO.FileMode.Create);
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(bmp));
-        encoder.Save(fs);
-    }
+    // SaveBitmapSource removed, using IImage.Save() instead.
 }

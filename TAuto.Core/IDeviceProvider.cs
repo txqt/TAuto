@@ -1,4 +1,4 @@
-﻿using System.Windows.Media.Imaging;
+﻿using TAuto.Core.Imaging;
 
 namespace TAuto.Core;
 
@@ -25,5 +25,5 @@ public interface IDeviceProvider
     /// <summary>
     /// Currently loaded/captured image.
     /// </summary>
-    BitmapSource? CurrentImage { get; }
+    IImage? CurrentImage { get; }
 }

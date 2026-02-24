@@ -54,7 +54,7 @@ public class ClickTextAction : ActionBase
         int tapX = (int)match.Center.X + OffsetX;
         int tapY = (int)match.Center.Y + OffsetY;
         
-        context.LastFoundImageLocation = new System.Windows.Point(tapX, tapY);
+        context.LastFoundImageLocation = new System.Drawing.Point(tapX, tapY);
         
         bool success = await context.Device.TapAsync(tapX, tapY);
         

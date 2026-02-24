@@ -1,26 +1,32 @@
-﻿using System.Windows.Media.Imaging;
+﻿using TAuto.Core.Imaging;
 
 namespace TAuto.Core;
 
 /// <summary>
-/// Platform-independent computer vision interface.
+/// Handles matching a template image against a source image.
 /// </summary>
-public interface IVisionService
+public interface ITemplateMatcher
 {
     /// <summary>
     /// Find template image within source using template matching
     /// </summary>
-    TemplateMatchResult FindTemplate(BitmapSource source, BitmapSource template, double threshold, string? templatePath = null);
-    
+    TemplateMatchResult FindTemplate(IImage source, IImage template, double threshold, string? templatePath = null);
+}
+
+/// <summary>
+/// Handles storage and retrieval of template images to/from disk or database.
+/// </summary>
+public interface ITemplateRepository
+{
     /// <summary>
     /// Load template from file path
     /// </summary>
-    BitmapSource? LoadTemplate(string path, string? baseDirectory = null);
+    IImage? LoadTemplate(string path, string? baseDirectory = null);
     
     /// <summary>
     /// Save image as template
     /// </summary>
-    string SaveTemplate(BitmapSource image, string name);
+    string SaveTemplate(IImage image, string name);
     
     /// <summary>
     /// Get all available templates
@@ -31,4 +37,12 @@ public interface IVisionService
     /// Delete template by path
     /// </summary>
     bool DeleteTemplate(string path);
+}
+
+/// <summary>
+/// Platform-independent computer vision interface.
+/// Aggregates template matching and repository operations.
+/// </summary>
+public interface IVisionService : ITemplateMatcher, ITemplateRepository
+{
 }
