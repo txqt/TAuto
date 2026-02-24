@@ -97,7 +97,7 @@ public class WaitForImageAction : ActionBase
             }
             
             // Try to find image
-            var result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold);
+            var result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
             
             if (result.Found)
             {

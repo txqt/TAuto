@@ -10,7 +10,7 @@ public interface IVisionService
     /// <summary>
     /// Find template image within source using template matching
     /// </summary>
-    TemplateMatchResult FindTemplate(BitmapSource source, BitmapSource template, double threshold);
+    TemplateMatchResult FindTemplate(BitmapSource source, BitmapSource template, double threshold, string? templatePath = null);
     
     /// <summary>
     /// Load template from file path

@@ -68,7 +68,7 @@ public class FindImageAction : ActionBase
             return ActionResult.Fail("Cannot capture screen");
         
         // Perform template matching
-        var result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold);
+        var result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
         
         // Store result in context
         context.LastFoundImageLocation = result.Found ? result.CenterLocation : null;

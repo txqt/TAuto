@@ -170,7 +170,7 @@ public class ReliableClickAction : ActionBase
                 await context.UpdateScreenCaptureAsync(force: true);
                 if (context.LastScreenCapture == null) return ActionResult.Fail("Cannot capture screen");
 
-                match = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold);
+                match = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
                 if (match.Found) break;
 
                 if ((DateTime.Now - findStart).TotalMilliseconds >= FindTimeoutMs)
@@ -225,13 +225,13 @@ public class ReliableClickAction : ActionBase
             if (Confirm == ConfirmMode.WaitForGone)
             {
                 // Success = clicked image is NO LONGER visible
-                var result = context.Vision.FindTemplate(context.LastScreenCapture, clickedTemplate, Threshold);
+                var result = context.Vision.FindTemplate(context.LastScreenCapture, clickedTemplate, Threshold, TemplatePath);
                 if (!result.Found) return true;
             }
             else if (Confirm == ConfirmMode.WaitForNext && nextTemplate != null)
             {
                 // Success = confirm image IS NOW visible
-                var result = context.Vision.FindTemplate(context.LastScreenCapture, nextTemplate, Threshold);
+                var result = context.Vision.FindTemplate(context.LastScreenCapture, nextTemplate, Threshold, ConfirmTemplatePath);
                 if (result.Found)
                 {
                     context.LastFoundImageLocation = result.CenterLocation;

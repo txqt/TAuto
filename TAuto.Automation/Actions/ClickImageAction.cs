@@ -143,7 +143,7 @@ public class ClickImageAction : ActionBase
                 return ActionResult.Fail("Cannot capture screen");
             
             // Try to find image
-            matchResult = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold);
+            matchResult = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
             
             if (matchResult.Found)
                 break;

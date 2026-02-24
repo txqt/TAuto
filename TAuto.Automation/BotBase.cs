@@ -394,11 +394,24 @@ public abstract class BotBase
 
     /// <summary>
     /// Gets an argument value by name, with a default fallback.
+    /// Safely handles System.Text.Json.JsonElement from IPC.
     /// </summary>
     protected T GetArg<T>(string name, T defaultValue = default!)
     {
         if (Arguments.TryGetValue(name, out var value))
         {
+            if (value is System.Text.Json.JsonElement jsonElement)
+            {
+                try
+                {
+                    if (typeof(T) == typeof(string)) return (T)(object)(jsonElement.GetString() ?? "");
+                    if (typeof(T) == typeof(int)) return (T)(object)jsonElement.GetInt32();
+                    if (typeof(T) == typeof(bool)) return (T)(object)jsonElement.GetBoolean();
+                    if (typeof(T) == typeof(double)) return (T)(object)jsonElement.GetDouble();
+                }
+                catch { }
+            }
+
             try { return (T)Convert.ChangeType(value, typeof(T)); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BotBase] GetArg<{typeof(T).Name}>('{name}') cast failed: {ex.Message}"); return defaultValue; }
         }
