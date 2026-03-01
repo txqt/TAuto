@@ -94,7 +94,7 @@ public class SwipeAction : ActionBase
         set => SetProperty(ref _durationMs, value); 
     }
     
-    private int _randomOffset = 0;
+    private int _randomOffset = 3;
     public int RandomOffset 
     { 
         get => _randomOffset; 

@@ -67,16 +67,53 @@ public class StateTransition
     public bool IsFallback { get; set; } = false;
 
     /// <summary>
+    /// Probability (0.0–1.0) that this transition fires when its condition matches.
+    /// 1.0 = always fire (deterministic, default). 0.7 = 70% chance, 30% falls through.
+    /// </summary>
+    public double Probability { get; set; } = 1.0;
+
+    /// <summary>
+    /// If Probability roll fails, transition to this state instead (optional).
+    /// Null = skip this transition and check the next one ("hesitation").
+    /// </summary>
+    public string? AlternativeTargetState { get; set; }
+
+    /// <summary>
+    /// Cooldown (ms) after this transition fires. Prevents rapid-fire repetition.
+    /// 0 = no cooldown.
+    /// </summary>
+    public int CooldownMs { get; set; } = 0;
+
+    /// <summary>Timestamp of last successful fire (transient, not serialized).</summary>
+    [JsonIgnore]
+    public DateTime LastFiredUtc { get; set; } = DateTime.MinValue;
+
+    /// <summary>
     /// Evaluates if the transition should happen based on the condition(s).
     /// </summary>
     public virtual async Task<bool> ShouldTransitionAsync(ScriptContext context, CancellationToken ct)
     {
+        // Cooldown check
+        if (CooldownMs > 0 && (DateTime.UtcNow - LastFiredUtc).TotalMilliseconds < CooldownMs)
+            return false;
+
         bool result = await EvaluateConditionsAsync(context, ct);
         
         // Apply NOT logic if specified
         if (LogicMode == ConditionLogicMode.Not)
         {
-            return !result;
+            result = !result;
+        }
+
+        // Probability roll (only when condition matched)
+        if (result && Probability < 1.0)
+        {
+            if (new Random().NextDouble() >= Probability)
+            {
+                // Roll failed — this transition does NOT fire.
+                // AlternativeTargetState is handled by the caller (StateMachine.cs).
+                return false;
+            }
         }
         
         return result;

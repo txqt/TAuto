@@ -37,4 +37,11 @@ public class ScheduledJob
     public DateTime? LastRunTime { get; set; }
     public DateTime? NextRunTime { get; set; }
     public string LastStatus { get; set; } = "Idle";
+
+    /// <summary>
+    /// Gaussian variance (minutes) applied to NextRunTime for fleet de-correlation.
+    /// Prevents 100 bots from starting at the exact same time.
+    /// Default 15 = spread of ±15 minutes.
+    /// </summary>
+    public int StartupVarianceMinutes { get; set; } = 15;
 }

@@ -138,11 +138,9 @@ public class SchedulerService : IDisposable
         
         if (job.ScheduleType == ScheduleType.Interval)
         {
-            // Simple interval from last run (or now if never run)
             var baseTime = job.LastRunTime ?? now;
             job.NextRunTime = baseTime.AddMinutes(job.IntervalMinutes);
             
-            // If calculated time is in past (e.g. missed runs), catch up to future
             if (job.NextRunTime <= now)
             {
                 job.NextRunTime = now.AddMinutes(job.IntervalMinutes);
@@ -157,9 +155,24 @@ public class SchedulerService : IDisposable
             }
             catch (Exception ex)
             {
-                Log($"âŒ Error parsing Cron for job {job.Name}: {ex.Message}");
-                job.IsEnabled = false; // Disable invalid job
+                Log($"Error parsing Cron for job {job.Name}: {ex.Message}");
+                job.IsEnabled = false;
+                return;
             }
+        }
+
+        // Fleet de-correlation: apply Gaussian phase shift
+        if (job.StartupVarianceMinutes > 0 && job.NextRunTime.HasValue)
+        {
+            var rng = new Random(job.Id.GetHashCode() ^ DateTime.Now.Ticks.GetHashCode());
+            double u1 = 1.0 - rng.NextDouble();
+            double u2 = 1.0 - rng.NextDouble();
+            double z = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
+            double offsetMinutes = z * (job.StartupVarianceMinutes / 2.0); // stdDev = half variance
+            job.NextRunTime = job.NextRunTime.Value.AddMinutes(offsetMinutes);
+            // Don't schedule in the past
+            if (job.NextRunTime <= now)
+                job.NextRunTime = now.AddMinutes(Math.Abs(offsetMinutes) + 1);
         }
     }
     

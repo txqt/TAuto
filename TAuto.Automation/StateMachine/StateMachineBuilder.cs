@@ -243,7 +243,8 @@ public class StateMachineBuilder
     /// Pass null condition (or use When.Always) for unconditional transition.
     /// </summary>
     public StateMachineBuilder TransitionTo(string targetState, IAction? condition = null,
-        int priority = 0, int timeoutMs = 0, int maxRetries = 0, bool isFallback = false)
+        int priority = 0, int timeoutMs = 0, int maxRetries = 0, bool isFallback = false,
+        double probability = 1.0, string? alternativeState = null, int cooldownMs = 0)
     {
         EnsureState();
         var transition = new StateTransition
@@ -254,6 +255,9 @@ public class StateMachineBuilder
             TimeoutMs = timeoutMs,
             MaxRetries = maxRetries,
             IsFallback = isFallback,
+            Probability = probability,
+            AlternativeTargetState = alternativeState,
+            CooldownMs = cooldownMs,
             TransitionType = condition == null ? TransitionType.Immediate : TransitionType.Polling
         };
         _currentState!.Transitions.Add(transition);

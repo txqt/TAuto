@@ -67,7 +67,7 @@ public class ClickImageAction : ActionBase
         set => SetProperty(ref _offsetY, value); 
     }
     
-    private int _randomOffset = 0;
+    private int _randomOffset = 3;
     /// <summary>
     /// Random offset range in pixels for anti-detection.
     /// </summary>

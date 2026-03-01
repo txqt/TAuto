@@ -81,11 +81,14 @@ public class TapAction : ActionBase
         set => SetProperty(ref _refHeight, value);
     }
 
-    private int _randomOffset = 0;
+    private int _randomOffset = 3;
+    /// <summary>
+    /// Random pixel offset for anti-detection (default 3px, mandatory minimum).
+    /// </summary>
     public int RandomOffset 
     { 
         get => _randomOffset; 
-        set => SetProperty(ref _randomOffset, value); 
+        set => SetProperty(ref _randomOffset, Math.Max(2, value)); 
     }
     
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
@@ -136,15 +139,27 @@ public class TapAction : ActionBase
             tapY = Y;
         }
         
-        if (RandomOffset > 0)
+        // Apply Gaussian random offset (mandatory minimum 2px)
+        int effectiveOffset = Math.Max(2, RandomOffset);
+        double accMul = context.Persona?.AccuracyMultiplier ?? 1.0;
+        effectiveOffset = (int)(effectiveOffset * accMul);
         {
             var rnd = new Random();
-            tapX += rnd.Next(-RandomOffset, RandomOffset + 1);
-            tapY += rnd.Next(-RandomOffset, RandomOffset + 1);
+            // Box-Muller Gaussian instead of Uniform
+            tapX += (int)GaussianOffset(rnd, effectiveOffset);
+            tapY += (int)GaussianOffset(rnd, effectiveOffset);
         }
         
         bool success = await context.Device.TapAsync(tapX, tapY);
         
         return success ? ActionResult.Ok() : ActionResult.Fail($"Tap failed at ({tapX}, {tapY})");
+    }
+
+    private static double GaussianOffset(Random rnd, int range)
+    {
+        double u1 = 1.0 - rnd.NextDouble();
+        double u2 = 1.0 - rnd.NextDouble();
+        double z = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
+        return z * (range / 2.0); // stdDev = half the range
     }
 }

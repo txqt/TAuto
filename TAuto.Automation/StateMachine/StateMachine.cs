@@ -161,6 +161,9 @@ public class StateMachine
     {
         var transitionElapsedMs = (DateTime.UtcNow - stateStartTime).TotalMilliseconds;
 
+        // Record transition fire time for cooldown tracking
+        transition.LastFiredUtc = DateTime.UtcNow;
+
         foreach (var exitAction in fromState.ExitActions)
         {
             if (ct.IsCancellationRequested) break;

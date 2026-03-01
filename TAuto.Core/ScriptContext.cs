@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using TAuto.Core.Imaging;
+using TAuto.Core.Models;
 
 namespace TAuto.Core;
 
@@ -40,6 +41,15 @@ public class ScriptContext
     }
     
     public Guid SessionId { get; } = Guid.NewGuid(); // Unique session ID
+    
+    /// <summary>Bot personality profile (loaded from disk, unique per bot).</summary>
+    public BotPersona? Persona { get; set; }
+    
+    /// <summary>Persistent session data (loaded from disk, saved on shutdown).</summary>
+    public BotSession? Session { get; set; }
+    
+    /// <summary>Short-term memory of recent actions and outcomes.</summary>
+    public EpisodicMemory Memory { get; } = new();
     
     public IImage? LastScreenCapture => _captureManager.LastScreenCapture;
     public DateTime? LastCaptureTime => _captureManager.LastCaptureTime;
