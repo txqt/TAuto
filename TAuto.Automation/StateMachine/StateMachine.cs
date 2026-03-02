@@ -100,6 +100,9 @@ public class StateMachine
 
                 if (errorTransition != null)
                 {
+                    // FIX-2 (Audit): Clear local variables from the failed state before fallback
+                    // to prevent stale data from poisoning the recovery state.
+                    variableStore.ClearLocalVariables(_currentState.Name);
                     System.Diagnostics.Debug.WriteLine($"[StateMachine] Fallback transition triggered from '{_currentState.Name}' to '{errorTransition.ToState}' due to entry failure.");
                     var gtResult = await ExecuteTransitionAsync(errorTransition, _currentState, context, variableStore, stateStartTime, 0, ct);
                     if (gtResult != null) return gtResult;

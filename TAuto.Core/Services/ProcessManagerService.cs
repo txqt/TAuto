@@ -32,6 +32,10 @@ public class ProcessManagerService : IDisposable
     private readonly ConcurrentDictionary<string, WorkerProcess> _workers = new();
     private readonly ConcurrentDictionary<string, bool> _intentionalStops = new();
     private bool _disposed;
+    private Timer? _heartbeatReaperTimer;
+
+    /// <summary>Max seconds without heartbeat before a worker is considered zombie and killed.</summary>
+    public int HeartbeatTimeoutSeconds { get; set; } = 15;
 
     /// <summary>Path to the Worker executable.</summary>
     public string WorkerExePath { get; set; }
@@ -77,6 +81,34 @@ public class ProcessManagerService : IDisposable
 
         var baseDir = AppDomain.CurrentDomain.BaseDirectory;
         WorkerExePath = Path.Combine(baseDir, "AutoBot.Worker.exe");
+
+        // FIX-1 (Audit): Heartbeat reaper — kills zombie workers with no heartbeat
+        _heartbeatReaperTimer = new Timer(ReapZombieWorkers, null,
+            TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5));
+    }
+
+    private void ReapZombieWorkers(object? state)
+    {
+        if (_disposed) return;
+        foreach (var kvp in _workers)
+        {
+            var worker = kvp.Value;
+            if (worker.Process.HasExited) continue;
+
+            var lastHb = _heartbeatMonitor.GetLastHeartbeatTime(worker.WorkerId);
+            if (lastHb == null) continue; // Not yet started sending heartbeats
+
+            var elapsed = (DateTime.UtcNow - lastHb.Value).TotalSeconds;
+            if (elapsed > HeartbeatTimeoutSeconds)
+            {
+                _logger?.LogWarning(
+                    "HEARTBEAT REAPER: Worker '{WorkerId}' has not sent a heartbeat in {Elapsed:F0}s. Killing.",
+                    worker.WorkerId, elapsed);
+                _intentionalStops.TryAdd(worker.WorkerId, true);
+                _processSpawner.KillProcess(worker.Process);
+                OnWorkerStatusChanged?.Invoke(worker.WorkerId, "zombie_reaped");
+            }
+        }
     }
 
     public async Task<string> StartWorkerAsync(WorkerStartupArgs startupArgs, string botFolder, CancellationToken cancellationToken = default)
@@ -86,7 +118,8 @@ public class ProcessManagerService : IDisposable
             : startupArgs.WorkerId;
             
         startupArgs.WorkerId = workerId;
-        var pipeName = $"AutoBot_Worker_{workerId}";
+        // FIX-3 (Audit): Unique pipe name per session to avoid OS handle collisions on restart
+        var pipeName = $"AutoBot_Worker_{workerId}_{Guid.NewGuid():N}";
 
         OnWorkerStatusChanged?.Invoke(workerId, "starting");
 
@@ -373,6 +406,7 @@ public class ProcessManagerService : IDisposable
         if (_disposed) return;
         _disposed = true;
 
+        _heartbeatReaperTimer?.Dispose();
         _processSpawner.TerminateAll();
         if (_processSpawner is IDisposable dispSpawner) dispSpawner.Dispose();
         
