@@ -157,18 +157,22 @@ public class ProcessManagerService : IDisposable
                 _logger?.LogInformation($"Worker '{workerId}' exited with code {exitCode}");
 
                 _tokenService.ReleaseAllForWorker(workerId);
-                // FIX-4: Exit code -2 is a deliberate startup timeout, not a crash.
-                bool isCrash = exitCode != 0 && exitCode != -1 && exitCode != -2;
+                // FIX-1 (Audit): exitCode -1 IS now a crash (unhandled exception).
+                // Only -2 (deliberate startup timeout) is treated as non-crash.
+                // FIX-4 (Audit): exitCode -3 = hardware unavailable — crash but NO auto-restart.
+                bool isCrash = exitCode != 0 && exitCode != -2;
+                bool isHardwareMissing = exitCode == -3;
                 
                 if (_intentionalStops.TryRemove(workerId, out _))
                 {
                     isCrash = false;
+                    isHardwareMissing = false;
                 }
 
-                OnWorkerStatusChanged?.Invoke(workerId, isCrash ? "crashed" : "stopped");
+                OnWorkerStatusChanged?.Invoke(workerId, isCrash ? (isHardwareMissing ? "hardware_missing" : "crashed") : "stopped");
                 await RemoveWorkerAsync(workerId);
 
-                if (AutoRestart && isCrash && !_disposed)
+                if (AutoRestart && isCrash && !isHardwareMissing && !_disposed)
                 {
                     bool isLooping = _crashProtector.RegisterCrashAndCheckIfLooping(workerId);
                     if (isLooping)

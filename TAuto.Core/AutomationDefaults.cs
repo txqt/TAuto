@@ -20,7 +20,8 @@ public static class AutomationDefaults
     public const int DefaultWorkerShutdownTimeoutMs = 5000;
     public const int DefaultMaxCrashesBeforeStop = 5;
     public const int DefaultCrashWindowSeconds = 60;
-    public const int DefaultWorkerConnectTimeoutMs = 10000;
+    // FIX-3 (Audit): Aligned with Worker's 30s startup timeout to prevent premature kills
+    public const int DefaultWorkerConnectTimeoutMs = 30000;
 
     // State Machine Defaults
     public const int DefaultStateFastCheckIntervalMs = 50;

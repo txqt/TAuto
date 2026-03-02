@@ -200,10 +200,19 @@ public class StateMachine
         // Record transition fire time for cooldown tracking
         transition.LastFiredUtc = DateTime.UtcNow;
 
+        // FIX-2 (Audit): Exit actions are best-effort teardowns.
+        // A failing exit action must NOT crash the state machine or bypass fallback mechanics.
         foreach (var exitAction in fromState.ExitActions)
         {
             if (ct.IsCancellationRequested) break;
-            await exitAction.ExecuteAsync(context, ct);
+            try
+            {
+                await exitAction.ExecuteAsync(context, ct);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[StateMachine] WARNING: ExitAction failed in state '{fromState.Name}': {ex.Message}. Continuing transition.");
+            }
         }
         
         variableStore.ClearLocalVariables(fromState.Name);
