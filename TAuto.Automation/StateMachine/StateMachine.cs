@@ -100,6 +100,7 @@ public class StateMachine
             {
                 if (_currentState.MaxDurationMs > 0 && (DateTime.UtcNow - stateStartTime).TotalMilliseconds >= _currentState.MaxDurationMs)
                 {
+                    variableStore.ClearLocalVariables(_currentState.Name);
                     return ActionResult.Fail($"State '{_currentState.Name}' timed out after {_currentState.MaxDurationMs}ms.");
                 }
 
