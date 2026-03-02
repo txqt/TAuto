@@ -30,6 +30,7 @@ public class ProcessManagerService : IDisposable
     private readonly ILogger<ProcessManagerService>? _logger;
     
     private readonly ConcurrentDictionary<string, WorkerProcess> _workers = new();
+    private readonly ConcurrentDictionary<string, bool> _intentionalStops = new();
     private bool _disposed;
 
     /// <summary>Path to the Worker executable.</summary>
@@ -78,7 +79,7 @@ public class ProcessManagerService : IDisposable
         WorkerExePath = Path.Combine(baseDir, "AutoBot.Worker.exe");
     }
 
-    public async Task<string> StartWorkerAsync(WorkerStartupArgs startupArgs, string botFolder)
+    public async Task<string> StartWorkerAsync(WorkerStartupArgs startupArgs, string botFolder, CancellationToken cancellationToken = default)
     {
         var workerId = string.IsNullOrEmpty(startupArgs.WorkerId) 
             ? $"worker-{_random.Next(1000, 9999)}" 
@@ -114,14 +115,71 @@ public class ProcessManagerService : IDisposable
             throw;
         }
 
+        // FIX-3: Attach Process Monitors Immediately
+        process.Exited += async (_, _) =>
+        {
+            try
+            {
+                var exitCode = process.ExitCode;
+                _logger?.LogInformation($"Worker '{workerId}' exited with code {exitCode}");
+
+                _tokenService.ReleaseAllForWorker(workerId);
+                // FIX-4: Exit code -2 is a deliberate startup timeout, not a crash.
+                bool isCrash = exitCode != 0 && exitCode != -1 && exitCode != -2;
+                
+                if (_intentionalStops.TryRemove(workerId, out _))
+                {
+                    isCrash = false;
+                }
+
+                OnWorkerStatusChanged?.Invoke(workerId, isCrash ? "crashed" : "stopped");
+                await RemoveWorkerAsync(workerId);
+
+                if (AutoRestart && isCrash && !_disposed)
+                {
+                    bool isLooping = _crashProtector.RegisterCrashAndCheckIfLooping(workerId);
+                    if (isLooping)
+                    {
+                        _logger?.LogError($"CRASH LOOP DETECTED for '{workerId}'. Stopping auto-restart.");
+                        OnWorkerStatusChanged?.Invoke(workerId, "crash_loop_stopped");
+                        return;
+                    }
+
+                    OnWorkerStatusChanged?.Invoke(workerId, "restarting");
+                    await Task.Delay(RestartDelayMs);
+
+                    if (!_disposed && AutoRestart && !_intentionalStops.ContainsKey(workerId))
+                    {
+                        try
+                        {
+                            string botDir = Path.GetDirectoryName(startupArgs.BotDllPath)!;
+                            await StartWorkerAsync(startupArgs, botDir);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.LogError($"Failed to restart Worker '{workerId}': {ex.Message}");
+                            OnWorkerStatusChanged?.Invoke(workerId, "restart_failed");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogCritical($"CRITICAL: Worker '{workerId}' Exited handler failed: {ex.Message}");
+                OnWorkerStatusChanged?.Invoke(workerId, $"handler_error: {ex.Message}");
+            }
+        };
+
         // 3. Wait for Worker to connect
         try
         {
-            using var connectCts = new CancellationTokenSource(AutomationDefaults.DefaultWorkerConnectTimeoutMs);
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            connectCts.CancelAfter(AutomationDefaults.DefaultWorkerConnectTimeoutMs);
             await _pipeRegistry.WaitForConnectionAsync(pipeServer, AutomationDefaults.DefaultWorkerConnectTimeoutMs, connectCts.Token);
         }
         catch (Exception ex)
         {
+            _intentionalStops.TryAdd(workerId, true);
             _processSpawner.KillProcess(process);
             pipeServer.Dispose();
             throw new TimeoutException($"Worker '{workerId}' failed to connect: {ex.Message}");
@@ -148,12 +206,15 @@ public class ProcessManagerService : IDisposable
         // 5. Wait for Ready signal
         {
             var readyTask = worker.Reader.ReadLineAsync();
-            var timeoutTask = Task.Delay(AutomationDefaults.DefaultWorkerConnectTimeoutMs);
+            var timeoutTask = Task.Delay(AutomationDefaults.DefaultWorkerConnectTimeoutMs, cancellationToken);
             if (await Task.WhenAny(readyTask, timeoutTask) != readyTask)
             {
-                OnWorkerStatusChanged?.Invoke(workerId, "TIMEOUT: ready signal");
+                _intentionalStops.TryAdd(workerId, true);
+                OnWorkerStatusChanged?.Invoke(workerId, "TIMEOUT_OR_CANCELLED: ready signal");
                 _processSpawner.KillProcess(process);
                 await RemoveWorkerAsync(workerId);
+                
+                cancellationToken.ThrowIfCancellationRequested();
                 throw new TimeoutException($"Worker '{workerId}' failed to send Ready within 10s");
             }
 
@@ -175,54 +236,7 @@ public class ProcessManagerService : IDisposable
         // Start background message listener
         _ = Task.Run(() => ListenToWorkerAsync(worker), worker.Cts.Token);
 
-        // Monitor process exit (crash recovery)
-        process.Exited += async (_, _) =>
-        {
-            try
-            {
-                var exitCode = process.ExitCode;
-                _logger?.LogInformation($"Worker '{workerId}' exited with code {exitCode}");
 
-                _tokenService.ReleaseAllForWorker(workerId);
-                bool isCrash = exitCode != 0 && exitCode != -1;
-                
-                OnWorkerStatusChanged?.Invoke(workerId, isCrash ? "crashed" : "stopped");
-                await RemoveWorkerAsync(workerId);
-
-                if (AutoRestart && isCrash && !_disposed)
-                {
-                    bool isLooping = _crashProtector.RegisterCrashAndCheckIfLooping(workerId);
-                    if (isLooping)
-                    {
-                        _logger?.LogError($"CRASH LOOP DETECTED for '{workerId}'. Stopping auto-restart.");
-                        OnWorkerStatusChanged?.Invoke(workerId, "crash_loop_stopped");
-                        return;
-                    }
-
-                    OnWorkerStatusChanged?.Invoke(workerId, "restarting");
-                    await Task.Delay(RestartDelayMs);
-
-                    if (!_disposed)
-                    {
-                        try
-                        {
-                            string botDir = Path.GetDirectoryName(startupArgs.BotDllPath)!;
-                            await StartWorkerAsync(startupArgs, botDir);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger?.LogError($"Failed to restart Worker '{workerId}': {ex.Message}");
-                            OnWorkerStatusChanged?.Invoke(workerId, "restart_failed");
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogCritical($"CRITICAL: Worker '{workerId}' Exited handler failed: {ex.Message}");
-                OnWorkerStatusChanged?.Invoke(workerId, $"handler_error: {ex.Message}");
-            }
-        };
 
         return workerId;
     }
@@ -232,6 +246,7 @@ public class ProcessManagerService : IDisposable
         _workers.TryGetValue(workerId, out WorkerProcess? worker);
         if (worker == null) return;
 
+        _intentionalStops.TryAdd(workerId, true);
         OnWorkerStatusChanged?.Invoke(workerId, "stopping");
 
         try
@@ -260,7 +275,10 @@ public class ProcessManagerService : IDisposable
     public async Task StopAllWorkersAsync()
     {
         var workerIds = _workers.Keys.ToList();
-        AutoRestart = false;
+        foreach (var id in workerIds)
+        {
+            _intentionalStops.TryAdd(id, true);
+        }
 
         var stopTasks = workerIds.Select(id => StopWorkerAsync(id));
         await Task.WhenAll(stopTasks);

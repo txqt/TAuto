@@ -108,7 +108,7 @@ public class StateTransition
         // Probability roll (only when condition matched)
         if (result && Probability < 1.0)
         {
-            if (new Random().NextDouble() >= Probability)
+            if (Random.Shared.NextDouble() >= Probability)
             {
                 // Roll failed — this transition does NOT fire.
                 // AlternativeTargetState is handled by the caller (StateMachine.cs).
