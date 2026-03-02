@@ -77,8 +77,39 @@ public class StateMachine
 
             if (ct.IsCancellationRequested) break;
 
-            var entryResult = await ActionExecutor.ExecuteActionsAsync(_currentState.EntryActions, context, _currentState.Name, true, ct);
-            if (!entryResult.Success) return entryResult;
+            ActionResult entryResult = ActionResult.Ok("Default");
+            try
+            {
+                entryResult = await ActionExecutor.ExecuteActionsAsync(_currentState.EntryActions, context, _currentState.Name, true, ct);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[StateMachine] Entry actions error in state '{_currentState.Name}': {ex.Message}");
+                entryResult = ActionResult.Fail($"Entry exception: {ex.Message}");
+            }
+            
+            // FIX-7: Fallback state checking instead of immediate hard abort
+            if (!entryResult.Success)
+            {
+                _sortedStateTransitions = _currentState.Transitions.OrderBy(t => t.IsFallback).ThenByDescending(t => t.Priority).ToArray();
+                var errorTransition = _sortedStateTransitions.FirstOrDefault(t => t.Condition == null && t.IsFallback);
+                if (errorTransition == null)
+                {
+                    errorTransition = _sortedGlobalTransitions?.FirstOrDefault(t => t.Condition == null && t.IsFallback);
+                }
+
+                if (errorTransition != null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[StateMachine] Fallback transition triggered from '{_currentState.Name}' to '{errorTransition.ToState}' due to entry failure.");
+                    var gtResult = await ExecuteTransitionAsync(errorTransition, _currentState, context, variableStore, stateStartTime, 0, ct);
+                    if (gtResult != null) return gtResult;
+                    continue; // Skip the rest, move immediately to fallback state
+                }
+                else
+                {
+                    return entryResult; // No fallback state found, abort.
+                }
+            }
 
             if (ct.IsCancellationRequested) break;
 
@@ -129,6 +160,7 @@ public class StateMachine
 
                         var result = await ExecuteTransitionAsync(transition, _currentState, context, variableStore, stateStartTime, pollCount, ct);
                         if (result != null) return result;
+                        transitionCount = 0; // FIX-5: Reset loop monitor counter on successful transition
                         transitioned = true;
                         break;
                     }

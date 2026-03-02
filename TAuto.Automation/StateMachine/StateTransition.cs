@@ -141,8 +141,8 @@ public class StateTransition
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine(
-                    $"[StateTransition] Condition failed → Target='{ToState}', Priority={Priority}, Error={ex.Message}");
-                return false;
+                    $"[StateTransition] Condition exception -> Target='{ToState}', Error={ex.Message}. Returning false.");
+                return false; // Real errors (not timeouts) can just fail the condition quietly and await the next poll
             }
         }
 
@@ -166,7 +166,7 @@ public class StateTransition
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine(
-                        $"[StateTransition] AND condition failed → Target='{ToState}', Priority={Priority}, Error={ex.Message}");
+                        $"[StateTransition] AND condition exception -> Target='{ToState}', Error={ex.Message}. Returning false.");
                     return false;
                 }
             }
@@ -190,7 +190,7 @@ public class StateTransition
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine(
-                        $"[StateTransition] OR condition failed → Target='{ToState}', Priority={Priority}, Error={ex.Message}");
+                        $"[StateTransition] OR condition exception -> Target='{ToState}', Error={ex.Message}. Continuing.");
                     // Continue to next condition
                 }
             }
