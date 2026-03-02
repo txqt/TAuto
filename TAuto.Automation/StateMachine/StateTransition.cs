@@ -129,20 +129,29 @@ public class StateTransition
         {
             if (Condition == null) return true;
             
+            // ISSUE-7: Per-condition timeout prevents a hung action from blocking the polling loop
+            using var conditionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            conditionCts.CancelAfter(TimeSpan.FromSeconds(10));
             try
             {
-                var result = await Condition.ExecuteAsync(context, ct);
+                var result = await Condition.ExecuteAsync(context, conditionCts.Token);
                 return result.Success;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[StateTransition] Condition timed out (10s) -> Target='{ToState}'. Returning false.");
+                return false;
             }
             catch (OperationCanceledException)
             {
-                return false; // Expected during cancellation
+                return false; // Outer cancellation
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"[StateTransition] Condition exception -> Target='{ToState}', Error={ex.Message}. Returning false.");
-                return false; // Real errors (not timeouts) can just fail the condition quietly and await the next poll
+                return false;
             }
         }
 

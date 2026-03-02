@@ -42,6 +42,10 @@ public class StateMachine
     {
         if (States.Count == 0) return ActionResult.Fail("State Machine has no states.");
 
+        // ISSUE-12: Clear stale instance fields for safe re-entrant calls
+        _currentState = null;
+        _sortedStateTransitions = null;
+
         _stateLookup = States.ToDictionary(s => s.Name, s => s);
         _sortedGlobalTransitions = GlobalTransitions.OrderByDescending(t => t.Priority).ToArray();
 
@@ -179,6 +183,16 @@ public class StateMachine
 
                 if (!transitioned)
                 {
+                    // ISSUE-6: Detect when all transitions are permanently exhausted
+                    bool allExhausted = _sortedStateTransitions!.Length > 0 && _sortedStateTransitions.All(t =>
+                        (t.TimeoutMs > 0 && (DateTime.UtcNow - transitionStartTimes[t]).TotalMilliseconds >= t.TimeoutMs) ||
+                        (t.MaxRetries > 0 && transitionRetryCounts[t] >= t.MaxRetries));
+                    if (allExhausted && _currentState.MaxDurationMs == 0)
+                    {
+                        variableStore.ClearLocalVariables(_currentState.Name);
+                        return ActionResult.Fail($"State '{_currentState.Name}': all transitions exhausted with no state timeout set.");
+                    }
+
                     consecutiveFailures++;
                     pollCount++;
                     
@@ -229,10 +243,15 @@ public class StateMachine
 
         if (string.Equals(transition.ToState, "END", StringComparison.OrdinalIgnoreCase))
         {
+            // ISSUE-5: OnTransitionActions on END path are best-effort (same as exit actions)
             foreach (var action in transition.OnTransitionActions)
             {
                 if (ct.IsCancellationRequested) break;
-                await action.ExecuteAsync(context, ct);
+                try { await action.ExecuteAsync(context, ct); }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[StateMachine] WARNING: OnTransitionAction failed on END: {ex.Message}");
+                }
             }
             LogTrace("TransitionTrigger", fromState.Name, "END", details: "State machine completed", elapsedMs: transitionElapsedMs);
             return ActionResult.Ok("State Machine completed (reached END state).");

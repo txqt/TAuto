@@ -106,7 +106,7 @@ public class ProcessManagerService : IDisposable
                     worker.WorkerId, elapsed);
                 _intentionalStops.TryAdd(worker.WorkerId, true);
                 _processSpawner.KillProcess(worker.Process);
-                OnWorkerStatusChanged?.Invoke(worker.WorkerId, "zombie_reaped");
+                OnWorkerStatusChanged?.Invoke(worker.WorkerId, WorkerStates.ZombieReaped);
             }
         }
     }
@@ -121,7 +121,7 @@ public class ProcessManagerService : IDisposable
         // FIX-3 (Audit): Unique pipe name per session to avoid OS handle collisions on restart
         var pipeName = $"AutoBot_Worker_{workerId}_{Guid.NewGuid():N}";
 
-        OnWorkerStatusChanged?.Invoke(workerId, "starting");
+        OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Starting);
 
         // 1. Create Named Pipe Server
         NamedPipeServerStream pipeServer;
@@ -169,7 +169,7 @@ public class ProcessManagerService : IDisposable
                     isHardwareMissing = false;
                 }
 
-                OnWorkerStatusChanged?.Invoke(workerId, isCrash ? (isHardwareMissing ? "hardware_missing" : "crashed") : "stopped");
+                OnWorkerStatusChanged?.Invoke(workerId, isCrash ? (isHardwareMissing ? WorkerStates.HardwareMissing : WorkerStates.Crashed) : WorkerStates.Stopped);
                 await RemoveWorkerAsync(workerId);
 
                 if (AutoRestart && isCrash && !isHardwareMissing && !_disposed)
@@ -178,11 +178,11 @@ public class ProcessManagerService : IDisposable
                     if (isLooping)
                     {
                         _logger?.LogError($"CRASH LOOP DETECTED for '{workerId}'. Stopping auto-restart.");
-                        OnWorkerStatusChanged?.Invoke(workerId, "crash_loop_stopped");
+                        OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.CrashLoopStopped);
                         return;
                     }
 
-                    OnWorkerStatusChanged?.Invoke(workerId, "restarting");
+                    OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Restarting);
                     await Task.Delay(RestartDelayMs);
 
                     if (!_disposed && AutoRestart && !_intentionalStops.ContainsKey(workerId))
@@ -195,7 +195,7 @@ public class ProcessManagerService : IDisposable
                         catch (Exception ex)
                         {
                             _logger?.LogError($"Failed to restart Worker '{workerId}': {ex.Message}");
-                            OnWorkerStatusChanged?.Invoke(workerId, "restart_failed");
+                            OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.RestartFailed);
                         }
                     }
                 }
@@ -203,7 +203,7 @@ public class ProcessManagerService : IDisposable
             catch (Exception ex)
             {
                 _logger?.LogCritical($"CRITICAL: Worker '{workerId}' Exited handler failed: {ex.Message}");
-                OnWorkerStatusChanged?.Invoke(workerId, $"handler_error: {ex.Message}");
+                OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.HandlerError);
             }
         };
 
@@ -247,7 +247,7 @@ public class ProcessManagerService : IDisposable
             if (await Task.WhenAny(readyTask, timeoutTask) != readyTask)
             {
                 _intentionalStops.TryAdd(workerId, true);
-                OnWorkerStatusChanged?.Invoke(workerId, "TIMEOUT_OR_CANCELLED: ready signal");
+                OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.TimeoutReady);
                 _processSpawner.KillProcess(process);
                 await RemoveWorkerAsync(workerId);
                 
@@ -268,7 +268,7 @@ public class ProcessManagerService : IDisposable
         var startMsg = IpcMessage.Create(IpcMessageTypes.Start, startupArgs);
         await worker.Writer.WriteLineAsync(startMsg.ToJson());
 
-        OnWorkerStatusChanged?.Invoke(workerId, "running");
+        OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Running);
 
         // Start background message listener
         _ = Task.Run(() => ListenToWorkerAsync(worker), worker.Cts.Token);
@@ -284,7 +284,7 @@ public class ProcessManagerService : IDisposable
         if (worker == null) return;
 
         _intentionalStops.TryAdd(workerId, true);
-        OnWorkerStatusChanged?.Invoke(workerId, "stopping");
+        OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Stopping);
 
         try
         {
