@@ -163,7 +163,11 @@ public class StateMachine
 
                         var result = await ExecuteTransitionAsync(transition, _currentState, context, variableStore, stateStartTime, pollCount, ct);
                         if (result != null) return result;
-                        transitionCount = 0; // FIX-5: Reset loop monitor counter on successful transition
+                        
+                        // FIX-5 (Reverted): Do NOT reset `transitionCount = 0;` here.
+                        // Resetting it on every transition prevents LoopMonitor.MaxTransitions
+                        // from ever catching infinite loops between states, causing 100% CPU lockups.
+                        
                         transitioned = true;
                         break;
                     }
