@@ -263,7 +263,8 @@ public class StateMachine
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[StateMachine] WARNING: ExitAction failed in state '{fromState.Name}': {ex.Message}. Continuing transition.");
+                System.Diagnostics.Debug.WriteLine($"[StateMachine] ERROR: ExitAction failed in state '{fromState.Name}': {ex.Message}. Aborting transition.");
+                return ActionResult.Fail($"Critical ExitAction failure in state '{fromState.Name}': {ex.Message}");
             }
         }
         
@@ -284,7 +285,8 @@ public class StateMachine
                 try { await action.ExecuteAsync(context, ct); }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[StateMachine] WARNING: OnTransitionAction failed on END: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"[StateMachine] ERROR: OnTransitionAction failed on END: {ex.Message}");
+                    return ActionResult.Fail($"Critical OnTransitionAction failure on END: {ex.Message}");
                 }
             }
             LogTrace("TransitionTrigger", fromState.Name, "END", details: "State machine completed", elapsedMs: transitionElapsedMs);
@@ -300,7 +302,8 @@ public class StateMachine
             try { await action.ExecuteAsync(context, ct); }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[StateMachine] WARNING: OnTransitionAction failed: {ex.Message}. Continuing.");
+                System.Diagnostics.Debug.WriteLine($"[StateMachine] ERROR: OnTransitionAction failed: {ex.Message}. Aborting transition.");
+                return ActionResult.Fail($"Critical OnTransitionAction failure transitioning to '{nextState.Name}': {ex.Message}");
             }
         }
 
