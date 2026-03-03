@@ -54,6 +54,7 @@ public class ProcessManagerService : IDisposable
     public event Action<string, WorkerLogEntry>? OnWorkerLog;
     public event Action<string, string>? OnWorkerStatusChanged;
     public event Action<string, WorkerHeartbeat>? OnWorkerHeartbeat;
+    public event Func<WorkerStartupArgs, string, Task>? OnAutoRestartRequested;
 
     public ProcessManagerService(
         IProcessSpawner? processSpawner = null,
@@ -137,6 +138,9 @@ public class ProcessManagerService : IDisposable
             ? $"worker-{_random.Next(1000, 9999)}" 
             : startupArgs.WorkerId;
             
+        // Clean up any stale intentional stops from previous sessions for this workerId
+        _intentionalStops.TryRemove(workerId, out _);
+        
         startupArgs.WorkerId = workerId;
         // FIX-3 (Audit): Unique pipe name per session to avoid OS handle collisions on restart
         var pipeName = $"AutoBot_Worker_{workerId}_{Guid.NewGuid():N}";
@@ -194,6 +198,7 @@ public class ProcessManagerService : IDisposable
                 // FIX-4 (Audit): exitCode -3 = hardware unavailable — crash but NO auto-restart.
                 bool isCrash = exitCode != 0 && exitCode != -2;
                 bool isHardwareMissing = exitCode == -3;
+                bool isReaped = false;
                 
                 if (_intentionalStops.TryRemove(workerId, out var stopReason))
                 {
@@ -204,17 +209,16 @@ public class ProcessManagerService : IDisposable
                     // Audit FIX-3: Don't overwrite ZombieReaped status with Stopped
                     if (stopReason == "reaped")
                     {
-                        await RemoveWorkerAsync(workerId);
-                        return;
+                        isReaped = true;
                     }
                 }
 
-                OnWorkerStatusChanged?.Invoke(workerId, isCrash ? (isHardwareMissing ? WorkerStates.HardwareMissing : WorkerStates.Crashed) : WorkerStates.Stopped);
+                OnWorkerStatusChanged?.Invoke(workerId, isCrash ? (isHardwareMissing ? WorkerStates.HardwareMissing : WorkerStates.Crashed) : (isReaped ? WorkerStates.ZombieReaped : WorkerStates.Stopped));
 
                 bool shouldRestart = false;
                 if (_workers.TryGetValue(workerId, out var w))
                 {
-                    shouldRestart = AutoRestart && isCrash && !isHardwareMissing && !_disposed && w.IsInitialized && !_isShuttingDown;
+                    shouldRestart = AutoRestart && (isCrash || isReaped) && !isHardwareMissing && !_disposed && w.IsInitialized && !_isShuttingDown;
                 }
 
                 await RemoveWorkerAsync(workerId);
@@ -230,20 +234,33 @@ public class ProcessManagerService : IDisposable
                     }
 
                     OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Restarting);
-                    await Task.Delay(RestartDelayMs);
+                    int delay = isReaped ? Math.Max(RestartDelayMs, 8000) : RestartDelayMs;
+                    await Task.Delay(delay);
 
-                    if (!_disposed && AutoRestart && !_intentionalStops.ContainsKey(workerId))
+                    if (!_disposed && !_isShuttingDown && AutoRestart && !_intentionalStops.ContainsKey(workerId))
                     {
                         try
                         {
                             string botDir = Path.GetDirectoryName(startupArgs.BotDllPath)!;
-                            await StartWorkerAsync(startupArgs, botDir);
+                            if (OnAutoRestartRequested != null)
+                            {
+                                await OnAutoRestartRequested(startupArgs, botDir);
+                            }
+                            else
+                            {
+                                await StartWorkerAsync(startupArgs, botDir);
+                            }
                         }
                         catch (Exception ex)
                         {
                             _logger?.LogError($"Failed to restart Worker '{workerId}': {ex.Message}");
                             OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.RestartFailed);
                         }
+                    }
+                    else if (shouldRestart)
+                    {
+                        // Restart was intended but conditions changed during delay (e.g., disposed or shutting down)
+                        OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Stopped);
                     }
                 }
             }
@@ -499,6 +516,11 @@ public class ProcessManagerService : IDisposable
             _logStreamer.CloseWriter(workerId);
         }
         return Task.CompletedTask;
+    }
+
+    public void ClearCrashHistory(string workerId)
+    {
+        _crashProtector.ClearHistory(workerId);
     }
 
     public void Dispose()
