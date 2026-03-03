@@ -372,7 +372,20 @@ public class ProcessManagerService : IDisposable
             var stopMsg = IpcMessage.Create(IpcMessageTypes.Stop);
             await worker.Writer.WriteLineAsync(stopMsg.ToJson());
 
-            var exited = worker.Process.WaitForExit(ShutdownTimeoutMs);
+            // AUDIT FIX (CORRECTION-5): Use async WaitForExitAsync instead of blocking WaitForExit
+            bool exited;
+            using (var exitCts = new CancellationTokenSource(ShutdownTimeoutMs))
+            {
+                try
+                {
+                    await worker.Process.WaitForExitAsync(exitCts.Token);
+                    exited = true;
+                }
+                catch (OperationCanceledException)
+                {
+                    exited = false;
+                }
+            }
             if (!exited)
             {
                 _logger?.LogWarning($"Worker '{workerId}' didn't stop gracefully. Killing.");
@@ -521,6 +534,16 @@ public class ProcessManagerService : IDisposable
     public void ClearCrashHistory(string workerId)
     {
         _crashProtector.ClearHistory(workerId);
+    }
+
+    /// <summary>
+    /// AUDIT FIX (CORRECTION-1): Publicly marks a workerId as intentionally stopped.
+    /// Called by WorkerOrchestrator.ClearAsync to prevent a pending auto-restart
+    /// continuation from spawning an orphan worker after the slot is cleared.
+    /// </summary>
+    public void MarkIntentionalStop(string workerId)
+    {
+        _intentionalStops.TryAdd(workerId, "cleared");
     }
 
     public void Dispose()

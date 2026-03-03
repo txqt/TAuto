@@ -34,6 +34,13 @@ public class StateMachine
 
     public List<StateTransition> GlobalTransitions { get; set; }
 
+    /// <summary>
+    /// AUDIT FIX (CORRECTION-4): When true (default), global transitions are evaluated
+    /// BEFORE entry actions on each state entry. Set to false if global transitions
+    /// cause entry-action starvation (globals always match → entry actions never run).
+    /// </summary>
+    public bool EvaluateGlobalsBeforeEntry { get; set; } = true;
+
     private State? _currentState;
     private Dictionary<string, State>? _stateLookup;
     private StateTransition[]? _sortedGlobalTransitions;
@@ -68,17 +75,26 @@ public class StateMachine
             var loopCheck = LoopMonitor.CheckTransitionCount(transitionCount++);
             if (loopCheck != null) return loopCheck;
 
-            OnStateChanged?.Invoke(this, _currentState.Name);
+            // AUDIT FIX (CORRECTION-6): Protect FSM from subscriber exceptions
+            try { OnStateChanged?.Invoke(this, _currentState.Name); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[StateMachine] OnStateChanged handler error: {ex.Message}"); }
+
             var stateStartTime = DateTime.UtcNow;
 
             LogTrace("StateEnter", _currentState.Name, elapsedMs: 0);
 
-            var globalWinner = await evaluator.EvaluateAsync(_sortedGlobalTransitions, context, ct);
-            if (globalWinner != null)
+            // AUDIT FIX (CORRECTION-4): Pre-entry global evaluation is configurable.
+            // When enabled (default), globals can interrupt before entry actions run.
+            // Disable if globals always match → entry actions are never executed.
+            if (EvaluateGlobalsBeforeEntry)
             {
-                var gtResult = await ExecuteTransitionAsync(globalWinner, _currentState, context, variableStore, stateStartTime, 0, ct);
-                if (gtResult != null) return gtResult;
-                continue; 
+                var globalWinner = await evaluator.EvaluateAsync(_sortedGlobalTransitions, context, ct);
+                if (globalWinner != null)
+                {
+                    var gtResult = await ExecuteTransitionAsync(globalWinner, _currentState, context, variableStore, stateStartTime, 0, ct);
+                    if (gtResult != null) return gtResult;
+                    continue; 
+                }
             }
 
             if (ct.IsCancellationRequested) break;
