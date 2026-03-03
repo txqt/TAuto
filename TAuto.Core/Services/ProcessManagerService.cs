@@ -29,14 +29,19 @@ public class ProcessManagerService : IDisposable
     private readonly ComputeTokenService _tokenService;
     private readonly ILogger<ProcessManagerService>? _logger;
     
-    private readonly ConcurrentDictionary<string, WorkerProcess> _workers = new();
+    private readonly ConcurrentDictionary<string, IWorkerProcess> _workers = new();
     private readonly ConcurrentDictionary<string, string> _intentionalStops = new();
+    private readonly ZombieWorkerReaper _zombieReaper;
+    private readonly WorkerIpcListener _ipcListener;
     private bool _disposed;
     private volatile bool _isShuttingDown = false;
-    private Timer? _heartbeatReaperTimer;
 
     /// <summary>Max seconds without heartbeat before a worker is considered zombie and killed.</summary>
-    public int HeartbeatTimeoutSeconds { get; set; } = 15;
+    public int HeartbeatTimeoutSeconds 
+    { 
+        get => _zombieReaper?.HeartbeatTimeoutSeconds ?? 15; 
+        set { if (_zombieReaper != null) { _zombieReaper.HeartbeatTimeoutSeconds = value; } } 
+    }
 
     /// <summary>Path to the Worker executable.</summary>
     public string WorkerExePath { get; set; }
@@ -85,52 +90,14 @@ public class ProcessManagerService : IDisposable
         WorkerExePath = Path.Combine(baseDir, "AutoBot.Worker.exe");
 
         // FIX-1 (Audit): Heartbeat reaper — kills zombie workers with no heartbeat
-        _heartbeatReaperTimer = new Timer(ReapZombieWorkers, null,
-            TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5));
+        _zombieReaper = new ZombieWorkerReaper(_workers, _intentionalStops, _heartbeatMonitor, _processSpawner, _logger, (w, s) => OnWorkerStatusChanged?.Invoke(w, s));
+        _ipcListener = new WorkerIpcListener(_tokenService, _logger, 
+            (w, hb) => OnWorkerHeartbeat?.Invoke(w, hb),
+            (w, l) => OnWorkerLog?.Invoke(w, l),
+            (w, s) => OnWorkerStatusChanged?.Invoke(w, s));
     }
 
-    private void ReapZombieWorkers(object? state)
-    {
-        if (_disposed) return;
-        foreach (var kvp in _workers)
-        {
-            try
-            {
-                var worker = kvp.Value;
-                if (worker.Process.HasExited) continue;
 
-                var lastHb = _heartbeatMonitor.GetLastHeartbeatTime(worker.WorkerId);
-                if (lastHb == null)
-                {
-                    // Audit FIX-1: Grace period for initialization before first heartbeat
-                    var age = (DateTime.UtcNow - worker.StartTimeUtc).TotalSeconds;
-                    if (age > 30)
-                    {
-                        _logger?.LogWarning("HEARTBEAT REAPER: Worker '{WorkerId}' failed to send initial heartbeat within 30s. Killing.", worker.WorkerId);
-                        _intentionalStops.TryAdd(worker.WorkerId, "reaped");
-                        _processSpawner.KillProcess(worker.Process);
-                        OnWorkerStatusChanged?.Invoke(worker.WorkerId, WorkerStates.ZombieReaped);
-                    }
-                    continue;
-                }
-
-                var elapsed = (DateTime.UtcNow - lastHb.Value).TotalSeconds;
-                if (elapsed > HeartbeatTimeoutSeconds)
-                {
-                    _logger?.LogWarning(
-                        "HEARTBEAT REAPER: Worker '{WorkerId}' has not sent a heartbeat in {Elapsed:F0}s. Killing.",
-                        worker.WorkerId, elapsed);
-                    _intentionalStops.TryAdd(worker.WorkerId, "reaped");
-                    _processSpawner.KillProcess(worker.Process);
-                    OnWorkerStatusChanged?.Invoke(worker.WorkerId, WorkerStates.ZombieReaped);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning("Heartbeat reaper error for worker '{WorkerId}': {Error}", kvp.Key, ex.Message);
-            }
-        }
-    }
 
     public async Task<string> StartWorkerAsync(WorkerStartupArgs startupArgs, string botFolder, CancellationToken cancellationToken = default)
     {
@@ -360,7 +327,7 @@ public class ProcessManagerService : IDisposable
         OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Running);
 
         // Start background message listener
-        _ = Task.Run(() => ListenToWorkerAsync(worker), worker.Cts.Token);
+        _ = Task.Run(() => _ipcListener.ListenAsync(worker), worker.Cts.Token);
 
 
 
@@ -369,7 +336,7 @@ public class ProcessManagerService : IDisposable
 
     public async Task StopWorkerAsync(string workerId)
     {
-        _workers.TryGetValue(workerId, out WorkerProcess? worker);
+        _workers.TryGetValue(workerId, out IWorkerProcess? worker);
         if (worker == null) return;
 
         _intentionalStops.TryAdd(workerId, "stopped");
@@ -457,72 +424,7 @@ public class ProcessManagerService : IDisposable
         )).ToList();
     }
 
-    private async Task ListenToWorkerAsync(WorkerProcess worker)
-    {
-        try
-        {
-            while (!worker.Cts.IsCancellationRequested && worker.PipeServer.IsConnected)
-            {
-                var line = await worker.Reader.ReadLineAsync(worker.Cts.Token);
-                if (line == null) break;
 
-                var msg = IpcMessage.FromJson(line);
-                if (msg == null) continue;
-
-                switch (msg.Type)
-                {
-                    case IpcMessageTypes.Heartbeat:
-                        var hb = msg.GetPayload<WorkerHeartbeat>();
-                        if (hb != null)
-                        {
-                            OnWorkerHeartbeat?.Invoke(worker.WorkerId, hb);
-                        }
-                        break;
-
-                    case IpcMessageTypes.Log:
-                        var log = msg.GetPayload<WorkerLogEntry>();
-                        if (log != null)
-                        {
-                            OnWorkerLog?.Invoke(worker.WorkerId, log);
-                        }
-                        break;
-
-                    case IpcMessageTypes.Exiting:
-                        _logger?.LogInformation($"Worker '{worker.WorkerId}' sent exit notification");
-                        break;
-
-                    case IpcMessageTypes.StatusUpdate:
-                        var statusStr = msg.GetPayload<string>();
-                        if (!string.IsNullOrEmpty(statusStr))
-                        {
-                            OnWorkerStatusChanged?.Invoke(worker.WorkerId, statusStr);
-                        }
-                        break;
-
-                    case IpcMessageTypes.RequestToken:
-                        var granted = await _tokenService.TryAcquireAsync(worker.WorkerId, 5000);
-                        var response = IpcMessage.Create(
-                            granted ? IpcMessageTypes.TokenGranted : IpcMessageTypes.TokenDenied);
-                        await worker.Writer.WriteLineAsync(response.ToJson());
-                        break;
-
-                    case IpcMessageTypes.ReleaseToken:
-                        _tokenService.Release(worker.WorkerId);
-                        break;
-                }
-            }
-        }
-        catch (OperationCanceledException) { }
-        catch (IOException) { }
-        catch (Exception ex)
-        {
-            _logger?.LogError($"Listener error for '{worker.WorkerId}': {ex.Message}");
-        }
-        finally
-        {
-            _tokenService.ReleaseAllForWorker(worker.WorkerId);
-        }
-    }
 
     private Task RemoveWorkerAsync(string workerId)
     {
@@ -561,7 +463,7 @@ public class ProcessManagerService : IDisposable
         if (_disposed) return;
         _disposed = true;
 
-        _heartbeatReaperTimer?.Dispose();
+        _zombieReaper?.Dispose();
         _processSpawner.TerminateAll();
         if (_processSpawner is IDisposable dispSpawner) dispSpawner.Dispose();
         
@@ -578,16 +480,5 @@ public class ProcessManagerService : IDisposable
         _workers.Clear();
     }
 
-    private class WorkerProcess
-    {
-        public string WorkerId { get; set; } = string.Empty;
-        public Process Process { get; set; } = null!;
-        public NamedPipeServerStream PipeServer { get; set; } = null!;
-        public StreamReader Reader { get; set; } = null!;
-        public StreamWriter Writer { get; set; } = null!;
-        public WorkerStartupArgs StartupArgs { get; set; } = null!;
-        public CancellationTokenSource Cts { get; set; } = null!;
-        public DateTime StartTimeUtc { get; set; }
-        public bool IsInitialized { get; set; } = false;
-    }
+
 }
