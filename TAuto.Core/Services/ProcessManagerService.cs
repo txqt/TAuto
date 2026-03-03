@@ -322,22 +322,32 @@ public class ProcessManagerService : IDisposable
             readyCts.CancelAfter(AutomationDefaults.DefaultWorkerConnectTimeoutMs);
             try
             {
-                var readyLine = await worker.Reader.ReadLineAsync(readyCts.Token);
-                var readyMsg = IpcMessage.FromJson(readyLine ?? "");
-
-                if (readyMsg?.Type != IpcMessageTypes.Ready)
+                while (!readyCts.IsCancellationRequested)
                 {
-                    _logger?.LogWarning($"Worker '{workerId}' didn't send Ready. Got: {readyMsg?.Type}");
+                    var readyLine = await worker.Reader.ReadLineAsync(readyCts.Token);
+                    var readyMsg = IpcMessage.FromJson(readyLine ?? "");
+
+                    if (readyMsg?.Type == IpcMessageTypes.Ready)
+                    {
+                        break;
+                    }
+                    else
+                    {
+                        _logger?.LogWarning($"Worker '{workerId}' didn't send Ready. Got: {readyMsg?.Type}");
+                    }
                 }
             }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException)
             {
                 _intentionalStops.TryAdd(workerId, "timeout");
                 OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.TimeoutReady);
                 _processSpawner.KillProcess(process);
                 await RemoveWorkerAsync(workerId);
                 
-                throw new TimeoutException($"Worker '{workerId}' failed to send Ready within 10s");
+                if (cancellationToken.IsCancellationRequested)
+                    throw;
+                else
+                    throw new TimeoutException($"Worker '{workerId}' failed to send Ready within 10s");
             }
         }
 

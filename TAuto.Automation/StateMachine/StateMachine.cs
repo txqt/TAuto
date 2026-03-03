@@ -183,15 +183,6 @@ public class StateMachine
                     .ToArray();
 
                 var pollGlobalWinner = await evaluator.EvaluateAsync(activeGlobals, context, ct);
-                
-                // Increment retry counts for evaluated globals that didn't match
-                foreach (var gt in activeGlobals)
-                {
-                    if (pollGlobalWinner == null || gt != pollGlobalWinner)
-                    {
-                        transitionRetryCounts[gt]++;
-                    }
-                }
 
                 if (pollGlobalWinner != null)
                 {
@@ -210,7 +201,19 @@ public class StateMachine
                     if (transition.TimeoutMs > 0 && (DateTime.UtcNow - transitionStartTimes[transition]).TotalMilliseconds >= transition.TimeoutMs) continue;
                     if (transition.MaxRetries > 0 && transitionRetryCounts[transition] >= transition.MaxRetries) continue;
 
-                    if (await transition.ShouldTransitionAsync(context, ct))
+                    bool shouldTransition = false;
+                    try
+                    {
+                        shouldTransition = await transition.ShouldTransitionAsync(context, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[StateMachine] Transition evaluation error: {ex.Message}");
+                        transitionRetryCounts[transition]++;
+                        continue;
+                    }
+
+                    if (shouldTransition)
                     {
                         var transitionElapsedMs = (DateTime.UtcNow - stateStartTime).TotalMilliseconds;
                         LogTrace("StateExit", _currentState.Name, transition.ToState, null, pollCount: pollCount, elapsedMs: transitionElapsedMs);
@@ -224,10 +227,6 @@ public class StateMachine
                         
                         transitioned = true;
                         break;
-                    }
-                    else
-                    {
-                        transitionRetryCounts[transition]++;
                     }
                 }
 
@@ -333,7 +332,14 @@ public class StateMachine
 
     private int CalculateOptimalWaitTime(State state, Dictionary<StateTransition, DateTime> transitionStartTimes, DateTime stateStartTime, int adaptiveInterval = 100)
     {
-        bool allEventBased = state.Transitions.All(t => t.TransitionType == TransitionType.Event || t.TransitionType == TransitionType.Immediate);
+        bool hasNoTransitions = state.Transitions.Count == 0;
+        bool allEventBased = !hasNoTransitions && state.Transitions.All(t => t.TransitionType == TransitionType.Event || t.TransitionType == TransitionType.Immediate);
+        
+        if (hasNoTransitions && (!EvaluateGlobalsBeforeEntry || GlobalTransitions.Count > 0))
+        {
+            return adaptiveInterval;
+        }
+
         if (allEventBased)
         {
             if (state.MaxDurationMs > 0)
