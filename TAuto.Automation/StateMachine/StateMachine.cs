@@ -111,6 +111,11 @@ public class StateMachine
                     System.Diagnostics.Debug.WriteLine($"[StateMachine] Fallback transition triggered from '{_currentState.Name}' to '{errorTransition.ToState}' due to entry failure.");
                     var gtResult = await ExecuteTransitionAsync(errorTransition, _currentState, context, variableStore, stateStartTime, 0, ct);
                     if (gtResult != null) return gtResult;
+
+                    // AUDIT FIX-1: Add delay to prevent infinite hot CPU spin
+                    // if fallback states repeatedly fail their entry actions.
+                    await Task.Delay(10, ct);
+
                     continue; // Skip the rest, move immediately to fallback state
                 }
                 else

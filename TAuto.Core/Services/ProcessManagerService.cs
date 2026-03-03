@@ -325,13 +325,29 @@ public class ProcessManagerService : IDisposable
             if (!exited)
             {
                 _logger?.LogWarning($"Worker '{workerId}' didn't stop gracefully. Killing.");
-                _processSpawner.KillProcess(worker.Process);
+                try 
+                { 
+                    _processSpawner.KillProcess(worker.Process); 
+                }
+                catch (Exception killEx)
+                {
+                    _logger?.LogError($"Failed to kill Worker '{workerId}' after timeout: {killEx.Message}");
+                    OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.HandlerError);
+                }
             }
         }
         catch (Exception ex)
         {
             _logger?.LogError($"Error stopping Worker '{workerId}': {ex.Message}");
-            _processSpawner.KillProcess(worker.Process);
+            try 
+            { 
+                _processSpawner.KillProcess(worker.Process); 
+            }
+            catch (Exception killEx)
+            {
+                _logger?.LogError($"Failed to forcefully kill Worker '{workerId}': {killEx.Message}");
+                OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.HandlerError);
+            }
         }
         finally
         {
