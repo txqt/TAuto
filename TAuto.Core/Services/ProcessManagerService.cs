@@ -92,21 +92,28 @@ public class ProcessManagerService : IDisposable
         if (_disposed) return;
         foreach (var kvp in _workers)
         {
-            var worker = kvp.Value;
-            if (worker.Process.HasExited) continue;
-
-            var lastHb = _heartbeatMonitor.GetLastHeartbeatTime(worker.WorkerId);
-            if (lastHb == null) continue; // Not yet started sending heartbeats
-
-            var elapsed = (DateTime.UtcNow - lastHb.Value).TotalSeconds;
-            if (elapsed > HeartbeatTimeoutSeconds)
+            try
             {
-                _logger?.LogWarning(
-                    "HEARTBEAT REAPER: Worker '{WorkerId}' has not sent a heartbeat in {Elapsed:F0}s. Killing.",
-                    worker.WorkerId, elapsed);
-                _intentionalStops.TryAdd(worker.WorkerId, true);
-                _processSpawner.KillProcess(worker.Process);
-                OnWorkerStatusChanged?.Invoke(worker.WorkerId, WorkerStates.ZombieReaped);
+                var worker = kvp.Value;
+                if (worker.Process.HasExited) continue;
+
+                var lastHb = _heartbeatMonitor.GetLastHeartbeatTime(worker.WorkerId);
+                if (lastHb == null) continue; // Not yet started sending heartbeats
+
+                var elapsed = (DateTime.UtcNow - lastHb.Value).TotalSeconds;
+                if (elapsed > HeartbeatTimeoutSeconds)
+                {
+                    _logger?.LogWarning(
+                        "HEARTBEAT REAPER: Worker '{WorkerId}' has not sent a heartbeat in {Elapsed:F0}s. Killing.",
+                        worker.WorkerId, elapsed);
+                    _intentionalStops.TryAdd(worker.WorkerId, true);
+                    _processSpawner.KillProcess(worker.Process);
+                    OnWorkerStatusChanged?.Invoke(worker.WorkerId, WorkerStates.ZombieReaped);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning("Heartbeat reaper error for worker '{WorkerId}': {Error}", kvp.Key, ex.Message);
             }
         }
     }
@@ -148,6 +155,16 @@ public class ProcessManagerService : IDisposable
             _logger?.LogError($"Error spawning worker: {ex.Message}");
             throw;
         }
+
+        var worker = new WorkerProcess
+        {
+            WorkerId = workerId,
+            Process = process,
+            PipeServer = pipeServer,
+            StartupArgs = startupArgs,
+            Cts = new CancellationTokenSource()
+        };
+        _workers[workerId] = worker;
 
         // FIX-3: Attach Process Monitors Immediately
         process.Exited += async (_, _) =>
@@ -229,18 +246,8 @@ public class ProcessManagerService : IDisposable
         var reader = new StreamReader(pipeServer, noBomUtf8, detectEncodingFromByteOrderMarks: false);
         var writer = new StreamWriter(pipeServer, noBomUtf8) { AutoFlush = true };
 
-        var worker = new WorkerProcess
-        {
-            WorkerId = workerId,
-            Process = process,
-            PipeServer = pipeServer,
-            Reader = reader,
-            Writer = writer,
-            StartupArgs = startupArgs,
-            Cts = new CancellationTokenSource()
-        };
-
-        _workers[workerId] = worker;
+        worker.Reader = reader;
+        worker.Writer = writer;
 
         // 5. Wait for Ready signal
         {

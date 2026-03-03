@@ -22,6 +22,7 @@ public class StateMachine
 
     public List<State> States { get; set; }
     public string InitialStateName { get; set; } = string.Empty;
+    public int DefaultStateTimeoutMs { get; set; } = 0;
     public event EventHandler<string>? OnStateChanged;
 
     public IExecutionLoopMonitor LoopMonitor { get; set; } = new DefaultExecutionLoopMonitor();
@@ -136,10 +137,11 @@ public class StateMachine
 
             while (!ct.IsCancellationRequested && !transitioned)
             {
-                if (_currentState.MaxDurationMs > 0 && (DateTime.UtcNow - stateStartTime).TotalMilliseconds >= _currentState.MaxDurationMs)
+                int effectiveTimeout = _currentState.MaxDurationMs > 0 ? _currentState.MaxDurationMs : DefaultStateTimeoutMs;
+                if (effectiveTimeout > 0 && (DateTime.UtcNow - stateStartTime).TotalMilliseconds >= effectiveTimeout)
                 {
                     variableStore.ClearLocalVariables(_currentState.Name);
-                    return ActionResult.Fail($"State '{_currentState.Name}' timed out after {_currentState.MaxDurationMs}ms.");
+                    return ActionResult.Fail($"State '{_currentState.Name}' timed out after {effectiveTimeout}ms.");
                 }
 
                 var pollGlobalWinner = await evaluator.EvaluateAsync(_sortedGlobalTransitions, context, ct);
@@ -290,7 +292,7 @@ public class StateMachine
                 var remaining = state.MaxDurationMs - (int)(DateTime.UtcNow - stateStartTime).TotalMilliseconds;
                 return Math.Max(10, remaining);
             }
-            return Timeout.Infinite;
+            return 60000; // Cap at 60s
         }
         
         int minWait = adaptiveInterval;

@@ -244,7 +244,7 @@ public class StateMachineBuilder
     /// </summary>
     public StateMachineBuilder TransitionTo(string targetState, IAction? condition = null,
         int priority = 0, int timeoutMs = 0, int maxRetries = 0, bool isFallback = false,
-        double probability = 1.0, string? alternativeState = null, int cooldownMs = 0)
+        double probability = 1.0, int cooldownMs = 0)
     {
         EnsureState();
         var transition = new StateTransition
@@ -256,7 +256,6 @@ public class StateMachineBuilder
             MaxRetries = maxRetries,
             IsFallback = isFallback,
             Probability = probability,
-            AlternativeTargetState = alternativeState,
             CooldownMs = cooldownMs,
             TransitionType = condition == null ? TransitionType.Immediate : TransitionType.Polling
         };

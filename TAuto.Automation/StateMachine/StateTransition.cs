@@ -73,12 +73,6 @@ public class StateTransition
     public double Probability { get; set; } = 1.0;
 
     /// <summary>
-    /// If Probability roll fails, transition to this state instead (optional).
-    /// Null = skip this transition and check the next one ("hesitation").
-    /// </summary>
-    public string? AlternativeTargetState { get; set; }
-
-    /// <summary>
     /// Cooldown (ms) after this transition fires. Prevents rapid-fire repetition.
     /// 0 = no cooldown.
     /// </summary>
@@ -111,7 +105,6 @@ public class StateTransition
             if (Random.Shared.NextDouble() >= Probability)
             {
                 // Roll failed — this transition does NOT fire.
-                // AlternativeTargetState is handled by the caller (StateMachine.cs).
                 return false;
             }
         }
