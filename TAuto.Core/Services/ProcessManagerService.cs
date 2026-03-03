@@ -168,6 +168,7 @@ public class ProcessManagerService : IDisposable
                 {
                     isCrash = false;
                     isHardwareMissing = false;
+                    _crashProtector.ClearHistory(workerId);
                 }
 
                 OnWorkerStatusChanged?.Invoke(workerId, isCrash ? (isHardwareMissing ? WorkerStates.HardwareMissing : WorkerStates.Crashed) : WorkerStates.Stopped);
@@ -243,25 +244,26 @@ public class ProcessManagerService : IDisposable
 
         // 5. Wait for Ready signal
         {
-            var readyTask = worker.Reader.ReadLineAsync();
-            var timeoutTask = Task.Delay(AutomationDefaults.DefaultWorkerConnectTimeoutMs, cancellationToken);
-            if (await Task.WhenAny(readyTask, timeoutTask) != readyTask)
+            using var readyCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            readyCts.CancelAfter(AutomationDefaults.DefaultWorkerConnectTimeoutMs);
+            try
+            {
+                var readyLine = await worker.Reader.ReadLineAsync(readyCts.Token);
+                var readyMsg = IpcMessage.FromJson(readyLine ?? "");
+
+                if (readyMsg?.Type != IpcMessageTypes.Ready)
+                {
+                    _logger?.LogWarning($"Worker '{workerId}' didn't send Ready. Got: {readyMsg?.Type}");
+                }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 _intentionalStops.TryAdd(workerId, true);
                 OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.TimeoutReady);
                 _processSpawner.KillProcess(process);
                 await RemoveWorkerAsync(workerId);
                 
-                cancellationToken.ThrowIfCancellationRequested();
                 throw new TimeoutException($"Worker '{workerId}' failed to send Ready within 10s");
-            }
-
-            var readyLine = await readyTask;
-            var readyMsg = IpcMessage.FromJson(readyLine ?? "");
-
-            if (readyMsg?.Type != IpcMessageTypes.Ready)
-            {
-                _logger?.LogWarning($"Worker '{workerId}' didn't send Ready. Got: {readyMsg?.Type}");
             }
         }
 
@@ -312,14 +314,23 @@ public class ProcessManagerService : IDisposable
 
     public async Task StopAllWorkersAsync()
     {
-        var workerIds = _workers.Keys.ToList();
-        foreach (var id in workerIds)
+        var wasAutoRestart = AutoRestart;
+        AutoRestart = false;
+        try
         {
-            _intentionalStops.TryAdd(id, true);
-        }
+            var workerIds = _workers.Keys.ToList();
+            foreach (var id in workerIds)
+            {
+                _intentionalStops.TryAdd(id, true);
+            }
 
-        var stopTasks = workerIds.Select(id => StopWorkerAsync(id));
-        await Task.WhenAll(stopTasks);
+            var stopTasks = workerIds.Select(id => StopWorkerAsync(id));
+            await Task.WhenAll(stopTasks);
+        }
+        finally
+        {
+            AutoRestart = wasAutoRestart;
+        }
     }
 
     public List<(string Id, bool IsRunning, long MemoryBytes)> GetWorkerStatuses()
@@ -408,7 +419,6 @@ public class ProcessManagerService : IDisposable
             try { worker.PipeServer?.Dispose(); } catch { }
             
             _heartbeatMonitor.Clear(workerId);
-            _crashProtector.ClearHistory(workerId);
             _logStreamer.CloseWriter(workerId);
         }
         return Task.CompletedTask;
