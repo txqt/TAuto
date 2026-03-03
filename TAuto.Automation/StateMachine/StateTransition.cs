@@ -158,6 +158,9 @@ public class StateTransition
         // AND/OR mode: use Conditions list
         if (Conditions.Count == 0) return true; // No conditions = always true
 
+        using var andOrCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        andOrCts.CancelAfter(TimeSpan.FromSeconds(10));
+
         if (LogicMode == ConditionLogicMode.And)
         {
             // ALL must pass
@@ -165,7 +168,7 @@ public class StateTransition
             {
                 try
                 {
-                    var result = await condition.ExecuteAsync(context, ct);
+                    var result = await condition.ExecuteAsync(context, andOrCts.Token);
                     if (!result.Success) return false;
                 }
                 catch (OperationCanceledException)
@@ -189,7 +192,7 @@ public class StateTransition
             {
                 try
                 {
-                    var result = await condition.ExecuteAsync(context, ct);
+                    var result = await condition.ExecuteAsync(context, andOrCts.Token);
                     if (result.Success) return true;
                 }
                 catch (OperationCanceledException)

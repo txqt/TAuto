@@ -131,7 +131,8 @@ public class ProcessManagerService : IDisposable
         }
         catch (Exception ex)
         {
-            OnWorkerStatusChanged?.Invoke(workerId, $"pipe error: {ex.Message}");
+            _logger?.LogError($"Pipe creation failed for '{workerId}': {ex.Message}");
+            OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.PipeError);
             throw;
         }
 
@@ -362,6 +363,14 @@ public class ProcessManagerService : IDisposable
 
                     case IpcMessageTypes.Exiting:
                         _logger?.LogInformation($"Worker '{worker.WorkerId}' sent exit notification");
+                        break;
+
+                    case IpcMessageTypes.StatusUpdate:
+                        var statusStr = msg.GetPayload<string>();
+                        if (!string.IsNullOrEmpty(statusStr))
+                        {
+                            OnWorkerStatusChanged?.Invoke(worker.WorkerId, statusStr);
+                        }
                         break;
 
                     case IpcMessageTypes.RequestToken:

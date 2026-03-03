@@ -263,7 +263,11 @@ public class StateMachine
         foreach (var action in transition.OnTransitionActions)
         {
             if (ct.IsCancellationRequested) break;
-            await action.ExecuteAsync(context, ct);
+            try { await action.ExecuteAsync(context, ct); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[StateMachine] WARNING: OnTransitionAction failed: {ex.Message}. Continuing.");
+            }
         }
 
         LogTrace("TransitionTrigger", fromState.Name, nextState.Name, null, pollCount: pollCount, elapsedMs: transitionElapsedMs);
