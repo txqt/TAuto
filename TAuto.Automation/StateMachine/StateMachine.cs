@@ -144,7 +144,24 @@ public class StateMachine
                     return ActionResult.Fail($"State '{_currentState.Name}' timed out after {effectiveTimeout}ms.");
                 }
 
-                var pollGlobalWinner = await evaluator.EvaluateAsync(_sortedGlobalTransitions, context, ct);
+                // Audit FIX-2: Check TimeoutMs and MaxRetries for global transitions inside the loop
+                var activeGlobals = _sortedGlobalTransitions!
+                    .Where(gt => 
+                        (gt.TimeoutMs == 0 || (DateTime.UtcNow - transitionStartTimes[gt]).TotalMilliseconds < gt.TimeoutMs) &&
+                        (gt.MaxRetries == 0 || transitionRetryCounts[gt] < gt.MaxRetries))
+                    .ToArray();
+
+                var pollGlobalWinner = await evaluator.EvaluateAsync(activeGlobals, context, ct);
+                
+                // Increment retry counts for evaluated globals that didn't match
+                foreach (var gt in activeGlobals)
+                {
+                    if (pollGlobalWinner == null || gt != pollGlobalWinner)
+                    {
+                        transitionRetryCounts[gt]++;
+                    }
+                }
+
                 if (pollGlobalWinner != null)
                 {
                     var transitionElapsedMs = (DateTime.UtcNow - stateStartTime).TotalMilliseconds;

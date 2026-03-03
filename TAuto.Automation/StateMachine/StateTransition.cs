@@ -102,9 +102,11 @@ public class StateTransition
         // Probability roll (only when condition matched)
         if (result && Probability < 1.0)
         {
-            if (Random.Shared.NextDouble() >= Probability)
+            var roll = Random.Shared.NextDouble();
+            if (roll >= Probability)
             {
                 // Roll failed — this transition does NOT fire.
+                System.Diagnostics.Debug.WriteLine($"[StateTransition] Probability roll FAILED: roll={roll:F3}, threshold={Probability:F3}. Target='{ToState}'.");
                 return false;
             }
         }

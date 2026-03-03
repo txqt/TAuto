@@ -30,7 +30,7 @@ public class ProcessManagerService : IDisposable
     private readonly ILogger<ProcessManagerService>? _logger;
     
     private readonly ConcurrentDictionary<string, WorkerProcess> _workers = new();
-    private readonly ConcurrentDictionary<string, bool> _intentionalStops = new();
+    private readonly ConcurrentDictionary<string, string> _intentionalStops = new();
     private bool _disposed;
     private Timer? _heartbeatReaperTimer;
 
@@ -98,7 +98,19 @@ public class ProcessManagerService : IDisposable
                 if (worker.Process.HasExited) continue;
 
                 var lastHb = _heartbeatMonitor.GetLastHeartbeatTime(worker.WorkerId);
-                if (lastHb == null) continue; // Not yet started sending heartbeats
+                if (lastHb == null)
+                {
+                    // Audit FIX-1: Grace period for initialization before first heartbeat
+                    var age = (DateTime.UtcNow - worker.StartTimeUtc).TotalSeconds;
+                    if (age > 30)
+                    {
+                        _logger?.LogWarning("HEARTBEAT REAPER: Worker '{WorkerId}' failed to send initial heartbeat within 30s. Killing.", worker.WorkerId);
+                        _intentionalStops.TryAdd(worker.WorkerId, "reaped");
+                        _processSpawner.KillProcess(worker.Process);
+                        OnWorkerStatusChanged?.Invoke(worker.WorkerId, WorkerStates.ZombieReaped);
+                    }
+                    continue;
+                }
 
                 var elapsed = (DateTime.UtcNow - lastHb.Value).TotalSeconds;
                 if (elapsed > HeartbeatTimeoutSeconds)
@@ -106,7 +118,7 @@ public class ProcessManagerService : IDisposable
                     _logger?.LogWarning(
                         "HEARTBEAT REAPER: Worker '{WorkerId}' has not sent a heartbeat in {Elapsed:F0}s. Killing.",
                         worker.WorkerId, elapsed);
-                    _intentionalStops.TryAdd(worker.WorkerId, true);
+                    _intentionalStops.TryAdd(worker.WorkerId, "reaped");
                     _processSpawner.KillProcess(worker.Process);
                     OnWorkerStatusChanged?.Invoke(worker.WorkerId, WorkerStates.ZombieReaped);
                 }
@@ -162,7 +174,8 @@ public class ProcessManagerService : IDisposable
             Process = process,
             PipeServer = pipeServer,
             StartupArgs = startupArgs,
-            Cts = new CancellationTokenSource()
+            Cts = new CancellationTokenSource(),
+            StartTimeUtc = DateTime.UtcNow
         };
         _workers[workerId] = worker;
 
@@ -181,11 +194,18 @@ public class ProcessManagerService : IDisposable
                 bool isCrash = exitCode != 0 && exitCode != -2;
                 bool isHardwareMissing = exitCode == -3;
                 
-                if (_intentionalStops.TryRemove(workerId, out _))
+                if (_intentionalStops.TryRemove(workerId, out var stopReason))
                 {
                     isCrash = false;
                     isHardwareMissing = false;
-                    _crashProtector.ClearHistory(workerId);
+                    // Audit FIX-6: Do not clear history on intentional stop to avoid bypassing crash loop memory
+                    
+                    // Audit FIX-3: Don't overwrite ZombieReaped status with Stopped
+                    if (stopReason == "reaped")
+                    {
+                        await RemoveWorkerAsync(workerId);
+                        return;
+                    }
                 }
 
                 OnWorkerStatusChanged?.Invoke(workerId, isCrash ? (isHardwareMissing ? WorkerStates.HardwareMissing : WorkerStates.Crashed) : WorkerStates.Stopped);
@@ -235,7 +255,7 @@ public class ProcessManagerService : IDisposable
         }
         catch (Exception ex)
         {
-            _intentionalStops.TryAdd(workerId, true);
+            _intentionalStops.TryAdd(workerId, "timeout");
             _processSpawner.KillProcess(process);
             pipeServer.Dispose();
             throw new TimeoutException($"Worker '{workerId}' failed to connect: {ex.Message}");
@@ -265,7 +285,7 @@ public class ProcessManagerService : IDisposable
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                _intentionalStops.TryAdd(workerId, true);
+                _intentionalStops.TryAdd(workerId, "timeout");
                 OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.TimeoutReady);
                 _processSpawner.KillProcess(process);
                 await RemoveWorkerAsync(workerId);
@@ -293,7 +313,7 @@ public class ProcessManagerService : IDisposable
         _workers.TryGetValue(workerId, out WorkerProcess? worker);
         if (worker == null) return;
 
-        _intentionalStops.TryAdd(workerId, true);
+        _intentionalStops.TryAdd(workerId, "stopped");
         OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Stopping);
 
         try
@@ -328,7 +348,7 @@ public class ProcessManagerService : IDisposable
             var workerIds = _workers.Keys.ToList();
             foreach (var id in workerIds)
             {
-                _intentionalStops.TryAdd(id, true);
+                _intentionalStops.TryAdd(id, "stopped");
             }
 
             var stopTasks = workerIds.Select(id => StopWorkerAsync(id));
@@ -462,5 +482,6 @@ public class ProcessManagerService : IDisposable
         public StreamWriter Writer { get; set; } = null!;
         public WorkerStartupArgs StartupArgs { get; set; } = null!;
         public CancellationTokenSource Cts { get; set; } = null!;
+        public DateTime StartTimeUtc { get; set; }
     }
 }
