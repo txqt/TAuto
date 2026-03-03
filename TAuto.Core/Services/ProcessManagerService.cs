@@ -32,6 +32,7 @@ public class ProcessManagerService : IDisposable
     private readonly ConcurrentDictionary<string, WorkerProcess> _workers = new();
     private readonly ConcurrentDictionary<string, string> _intentionalStops = new();
     private bool _disposed;
+    private volatile bool _isShuttingDown = false;
     private Timer? _heartbeatReaperTimer;
 
     /// <summary>Max seconds without heartbeat before a worker is considered zombie and killed.</summary>
@@ -213,7 +214,7 @@ public class ProcessManagerService : IDisposable
                 bool shouldRestart = false;
                 if (_workers.TryGetValue(workerId, out var w))
                 {
-                    shouldRestart = AutoRestart && isCrash && !isHardwareMissing && !_disposed && w.IsInitialized;
+                    shouldRestart = AutoRestart && isCrash && !isHardwareMissing && !_disposed && w.IsInitialized && !_isShuttingDown;
                 }
 
                 await RemoveWorkerAsync(workerId);
@@ -346,6 +347,8 @@ public class ProcessManagerService : IDisposable
 
         _intentionalStops.TryAdd(workerId, "stopped");
         OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Stopping);
+        
+        bool killedSuccessfully = true;
 
         try
         {
@@ -364,6 +367,7 @@ public class ProcessManagerService : IDisposable
                 {
                     _logger?.LogError($"Failed to kill Worker '{workerId}' after timeout: {killEx.Message}");
                     OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.HandlerError);
+                    killedSuccessfully = false;
                 }
             }
         }
@@ -378,9 +382,11 @@ public class ProcessManagerService : IDisposable
             {
                 _logger?.LogError($"Failed to forcefully kill Worker '{workerId}': {killEx.Message}");
                 OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.HandlerError);
+                killedSuccessfully = false;
             }
         }
-        finally
+        
+        if (killedSuccessfully)
         {
             await RemoveWorkerAsync(workerId);
         }
@@ -388,8 +394,7 @@ public class ProcessManagerService : IDisposable
 
     public async Task StopAllWorkersAsync()
     {
-        var wasAutoRestart = AutoRestart;
-        AutoRestart = false;
+        _isShuttingDown = true;
         try
         {
             var workerIds = _workers.Keys.ToList();
@@ -403,7 +408,7 @@ public class ProcessManagerService : IDisposable
         }
         finally
         {
-            AutoRestart = wasAutoRestart;
+            _isShuttingDown = false;
         }
     }
 
@@ -485,6 +490,7 @@ public class ProcessManagerService : IDisposable
 
     private Task RemoveWorkerAsync(string workerId)
     {
+        _intentionalStops.TryRemove(workerId, out _);
         if (_workers.TryRemove(workerId, out var worker))
         {
             worker.Cts.Cancel();

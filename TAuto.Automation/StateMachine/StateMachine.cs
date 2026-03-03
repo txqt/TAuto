@@ -218,7 +218,7 @@ public class StateMachine
                 if (!transitioned)
                 {
                     // ISSUE-6: Detect when all transitions are permanently exhausted
-                    bool allExhausted = _sortedStateTransitions!.Length > 0 && _sortedStateTransitions.All(t =>
+                    bool allExhausted = _sortedStateTransitions!.Length == 0 || _sortedStateTransitions.All(t =>
                         (t.TimeoutMs > 0 && (DateTime.UtcNow - transitionStartTimes[t]).TotalMilliseconds >= t.TimeoutMs) ||
                         (t.MaxRetries > 0 && transitionRetryCounts[t] >= t.MaxRetries));
                     if (allExhausted && _currentState.MaxDurationMs == 0)
