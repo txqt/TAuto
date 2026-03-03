@@ -61,6 +61,7 @@ public class StateMachine
         IVariableStore variableStore = new DefaultVariableStore(context);
 
         int transitionCount = 0;
+        int consecutiveFallbackLoops = 0;
         
         while (!ct.IsCancellationRequested && _currentState != null)
         {
@@ -93,9 +94,18 @@ public class StateMachine
                 entryResult = ActionResult.Fail($"Entry exception: {ex.Message}");
             }
             
-            // FIX-7: Fallback state checking instead of immediate hard abort
-            if (!entryResult.Success)
+            if (entryResult.Success)
             {
+                consecutiveFallbackLoops = 0;
+            }
+            else
+            {
+                consecutiveFallbackLoops++;
+                if (consecutiveFallbackLoops > 3)
+                {
+                    return ActionResult.Fail($"State Machine stuck in fallback loop in state '{_currentState.Name}' after 3 consecutive entry failures.");
+                }
+
                 _sortedStateTransitions = _currentState.Transitions.OrderBy(t => t.IsFallback).ThenByDescending(t => t.Priority).ToArray();
                 var errorTransition = _sortedStateTransitions.FirstOrDefault(t => t.Condition == null && t.IsFallback);
                 if (errorTransition == null)

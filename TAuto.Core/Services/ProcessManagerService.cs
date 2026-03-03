@@ -209,9 +209,16 @@ public class ProcessManagerService : IDisposable
                 }
 
                 OnWorkerStatusChanged?.Invoke(workerId, isCrash ? (isHardwareMissing ? WorkerStates.HardwareMissing : WorkerStates.Crashed) : WorkerStates.Stopped);
+
+                bool shouldRestart = false;
+                if (_workers.TryGetValue(workerId, out var w))
+                {
+                    shouldRestart = AutoRestart && isCrash && !isHardwareMissing && !_disposed && w.IsInitialized;
+                }
+
                 await RemoveWorkerAsync(workerId);
 
-                if (AutoRestart && isCrash && !isHardwareMissing && !_disposed)
+                if (shouldRestart)
                 {
                     bool isLooping = _crashProtector.RegisterCrashAndCheckIfLooping(workerId);
                     if (isLooping)
@@ -251,7 +258,29 @@ public class ProcessManagerService : IDisposable
         {
             using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             connectCts.CancelAfter(AutomationDefaults.DefaultWorkerConnectTimeoutMs);
-            await _pipeRegistry.WaitForConnectionAsync(pipeServer, AutomationDefaults.DefaultWorkerConnectTimeoutMs, connectCts.Token);
+            
+            void OnEarlyExit(object? sender, EventArgs e) 
+            {
+                try { connectCts.Cancel(); } catch { }
+            }
+            process.Exited += OnEarlyExit;
+            try
+            {
+                if (process.HasExited) connectCts.Cancel();
+                await _pipeRegistry.WaitForConnectionAsync(pipeServer, AutomationDefaults.DefaultWorkerConnectTimeoutMs, connectCts.Token);
+            }
+            finally
+            {
+                process.Exited -= OnEarlyExit;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _intentionalStops.TryAdd(workerId, "timeout");
+            _processSpawner.KillProcess(process);
+            pipeServer.Dispose();
+            if (process.HasExited) throw new Exception($"Worker '{workerId}' crashed before connection.");
+            throw new TimeoutException($"Worker '{workerId}' connection timed out.");
         }
         catch (Exception ex)
         {
@@ -297,6 +326,8 @@ public class ProcessManagerService : IDisposable
         // 6. Send start command
         var startMsg = IpcMessage.Create(IpcMessageTypes.Start, startupArgs);
         await worker.Writer.WriteLineAsync(startMsg.ToJson());
+
+        worker.IsInitialized = true;
 
         OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Running);
 
@@ -460,6 +491,7 @@ public class ProcessManagerService : IDisposable
             try { worker.Writer?.Dispose(); } catch { }
             try { worker.Reader?.Dispose(); } catch { }
             try { worker.PipeServer?.Dispose(); } catch { }
+            try { worker.Process?.Dispose(); } catch { }
             
             _heartbeatMonitor.Clear(workerId);
             _logStreamer.CloseWriter(workerId);
@@ -499,5 +531,6 @@ public class ProcessManagerService : IDisposable
         public WorkerStartupArgs StartupArgs { get; set; } = null!;
         public CancellationTokenSource Cts { get; set; } = null!;
         public DateTime StartTimeUtc { get; set; }
+        public bool IsInitialized { get; set; } = false;
     }
 }
