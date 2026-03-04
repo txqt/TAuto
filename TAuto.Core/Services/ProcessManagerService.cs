@@ -165,12 +165,14 @@ public class ProcessManagerService : IDisposable
                 // FIX-4 (Audit): exitCode -3 = hardware unavailable — crash but NO auto-restart.
                 bool isCrash = exitCode != 0 && exitCode != -2;
                 bool isHardwareMissing = exitCode == -3;
+                bool isNativeCrash = exitCode != 0 && exitCode != -1 && exitCode != -2 && exitCode != -3 && exitCode != -4;
                 bool isReaped = false;
                 
                 if (_intentionalStops.TryRemove(workerId, out var stopReason))
                 {
                     isCrash = false;
                     isHardwareMissing = false;
+                    isNativeCrash = false;
                     // Audit FIX-6: Do not clear history on intentional stop to avoid bypassing crash loop memory
                     
                     // Audit FIX-3: Don't overwrite ZombieReaped status with Stopped
@@ -180,12 +182,12 @@ public class ProcessManagerService : IDisposable
                     }
                 }
 
-                OnWorkerStatusChanged?.Invoke(workerId, isCrash ? (isHardwareMissing ? WorkerStates.HardwareMissing : WorkerStates.Crashed) : (isReaped ? WorkerStates.ZombieReaped : WorkerStates.Stopped));
+                OnWorkerStatusChanged?.Invoke(workerId, isCrash ? (isHardwareMissing ? WorkerStates.HardwareMissing : (isNativeCrash ? WorkerStates.Crashed : WorkerStates.Crashed)) : (isReaped ? WorkerStates.ZombieReaped : WorkerStates.Stopped));
 
                 bool shouldRestart = false;
                 if (_workers.TryGetValue(workerId, out var w))
                 {
-                    shouldRestart = AutoRestart && (isCrash || isReaped) && !isHardwareMissing && !_disposed && w.IsInitialized && !_isShuttingDown;
+                    shouldRestart = AutoRestart && (isCrash || isReaped) && !isHardwareMissing && !isNativeCrash && !_disposed && w.IsInitialized && !_isShuttingDown;
                 }
 
                 await RemoveWorkerAsync(workerId);
