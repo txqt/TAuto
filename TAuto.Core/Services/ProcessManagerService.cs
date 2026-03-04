@@ -389,10 +389,14 @@ public class ProcessManagerService : IDisposable
             {
                 _logger?.LogError($"Failed to forcefully kill Worker '{workerId}': {killEx.Message}");
                 OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.HandlerError);
+                killedSuccessfully = false;
             }
         }
         
-        await RemoveWorkerAsync(workerId);
+        if (!killedSuccessfully)
+        {
+            await RemoveWorkerAsync(workerId);
+        }
     }
 
     public async Task StopAllWorkersAsync()
