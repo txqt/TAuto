@@ -35,6 +35,7 @@ public class ProcessManagerService : IDisposable
     private readonly WorkerIpcListener _ipcListener;
     private bool _disposed;
     private volatile bool _isShuttingDown = false;
+    private CancellationTokenSource _shutdownCts = new(); // FIX C-3: cancels pending restart delays during StopAll
 
     /// <summary>Max seconds without heartbeat before a worker is considered zombie and killed.</summary>
     public int HeartbeatTimeoutSeconds 
@@ -204,7 +205,14 @@ public class ProcessManagerService : IDisposable
 
                     OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Restarting);
                     int delay = isReaped ? Math.Max(RestartDelayMs, 8000) : RestartDelayMs;
-                    await Task.Delay(delay);
+                    // FIX C-3 (Audit): Observe _shutdownCts so StopAll can cancel pending restart delays
+                    try { await Task.Delay(delay, _shutdownCts.Token); }
+                    catch (OperationCanceledException)
+                    {
+                        _logger?.LogInformation($"Restart delay for '{workerId}' cancelled by StopAll.");
+                        OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Stopped);
+                        return;
+                    }
 
                     if (!_disposed && !_isShuttingDown && AutoRestart && !_intentionalStops.ContainsKey(workerId))
                     {
@@ -404,6 +412,9 @@ public class ProcessManagerService : IDisposable
     public async Task StopAllWorkersAsync()
     {
         _isShuttingDown = true;
+        // FIX C-3 (Audit): Cancel any pending restart delays immediately
+        _shutdownCts.Cancel();
+        _shutdownCts = new CancellationTokenSource();
         try
         {
             var workerIds = _workers.Keys.ToList();
@@ -434,7 +445,10 @@ public class ProcessManagerService : IDisposable
 
     private Task RemoveWorkerAsync(string workerId)
     {
-        _intentionalStops.TryRemove(workerId, out _);
+        // FIX P-1 (Audit): Do NOT clear _intentionalStops here.
+        // The Process.Exited handler (line ~172) is the correct consumer of this flag.
+        // Clearing it here races with the Exited handler and can cause
+        // the exit to be misclassified as a crash, triggering unwanted auto-restart.
         if (_workers.TryRemove(workerId, out var worker))
         {
             worker.Cts.Cancel();
