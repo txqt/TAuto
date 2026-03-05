@@ -19,7 +19,7 @@ namespace TAuto.Core.Services;
 /// </summary>
 public class ProcessManagerService : IDisposable
 {
-    private static readonly Random _random = new();
+    
     
     private readonly IProcessSpawner _processSpawner;
     private readonly INamedPipeRegistry _pipeRegistry;
@@ -103,7 +103,7 @@ public class ProcessManagerService : IDisposable
     public async Task<string> StartWorkerAsync(WorkerStartupArgs startupArgs, string botFolder, CancellationToken cancellationToken = default)
     {
         var workerId = string.IsNullOrEmpty(startupArgs.WorkerId) 
-            ? $"worker-{_random.Next(1000, 9999)}" 
+            ? $"worker-{Random.Shared.Next(1000, 9999)}" 
             : startupArgs.WorkerId;
             
         // Clean up any stale intentional stops from previous sessions for this workerId
@@ -414,7 +414,6 @@ public class ProcessManagerService : IDisposable
         _isShuttingDown = true;
         // FIX C-3 (Audit): Cancel any pending restart delays immediately
         _shutdownCts.Cancel();
-        _shutdownCts = new CancellationTokenSource();
         try
         {
             var workerIds = _workers.Keys.ToList();
@@ -428,6 +427,9 @@ public class ProcessManagerService : IDisposable
         }
         finally
         {
+            var oldCts = _shutdownCts;
+            _shutdownCts = new CancellationTokenSource();
+            oldCts.Dispose();
             _isShuttingDown = false;
         }
     }
@@ -482,6 +484,9 @@ public class ProcessManagerService : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+
+        try { _shutdownCts.Cancel(); } catch { }
+        _shutdownCts.Dispose();
 
         _zombieReaper?.Dispose();
         _processSpawner.TerminateAll();

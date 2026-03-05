@@ -56,9 +56,17 @@ public class ComputeTokenService : IDisposable
     /// </summary>
     public void Release(string workerId)
     {
+        bool decremented = false;
+        _workerTokens.AddOrUpdate(workerId, 0, (_, count) =>
+        {
+            if (count > 0) { decremented = true; return count - 1; }
+            return 0;
+        });
+
+        if (!decremented) return; // spurious release
+
         _semaphore.Release();
         Interlocked.Decrement(ref _activeTokens);
-        _workerTokens.AddOrUpdate(workerId, 0, (_, count) => Math.Max(0, count - 1));
     }
 
     /// <summary>
