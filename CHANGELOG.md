@@ -2,6 +2,14 @@
 
 All notable changes to the **TAuto Engine** will be documented in this file.
 
+## [Unreleased] - 2026-02-12
+### Added
+- **`OnStateChanged` Event**: New event hook in `StateMachine` for tracking active state. Enables "Protected State" patterns and external telemetry/UI monitoring.
+- **Improved `StateMachineBuilder`**:
+    - Better support for `nameof()` state resolve logic.
+    - Improved `When.Condition` lambdas for dynamic C# logic.
+    - Simplified action registration syntax within fluent loops.
+
 ## [Unreleased] - 2026-02-11
 ### Added
 - **Vision Enhancements**:

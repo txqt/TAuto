@@ -27,6 +27,9 @@ var sm = new StateMachineBuilder()
     .Build();
 
 await sm.RunAsync(context, cancellationToken);
+
+// Track current state in context (Useful for Protected State pattern)
+sm.OnStateChanged += (_, stateName) => context.SetVariable("_currentState", stateName);
 ```
 
 ---
@@ -37,6 +40,9 @@ await sm.RunAsync(context, cancellationToken);
 |---|---|
 | `.StartAt(stateName)` | Set the initial state. If omitted, defaults to the first defined state. |
 | `.MaxTransitions(n)` | Infinite-loop guard. Aborts after `n` transitions. |
+
+### Event: `OnStateChanged`
+Fires whenever the machine enters a new state. Use this to maintain external state (like a UI status or a `ScriptContext` variable) for gating logic.
 
 ---
 
@@ -136,14 +142,26 @@ Use `null` as target to end the state machine:
 
 ## Global Transitions (Interrupts)
 
-Checked in **every** state. Useful for high-priority interrupts.
-
-### `.GlobalTransition(targetState, condition, priority?, params IAction[] onTransitionActions)`
-
 ```csharp
 .GlobalTransition("HandlePopup",
     When.ImageFound("templates/popup.png"),
     priority: 100)
+```
+
+### The "Protected State" Pattern (Interrupt Gating)
+Global transitions run **before** state logic. Sometimes you want to disable an interrupt during a critical flow (e.g., while the bot is clicking a specific menu sequence).
+
+1.  **Track the current state** using `OnStateChanged`.
+2.  **Gate the interrupt** using `When.Condition`.
+
+```csharp
+var protectedStates = new[] { nameof(S.Marching), nameof(S.Confirming) };
+
+builder.GlobalTransition(nameof(S.ClosePopup), When.Condition((ctx, ct) => {
+    var current = ctx.GetString("_currentState");
+    if (protectedStates.Contains(current)) return ActionResult.Fail(); // Ignored
+    return Vision.Found("popup.png") ? ActionResult.Ok() : ActionResult.Fail();
+}), priority: 200);
 ```
 
 ---
@@ -192,6 +210,22 @@ var sm = builder
 
 > **Note:** The builder remembers the current state across the chain break.
 > All `.Action()` calls in the loop still belong to the same state.
+
+---
+
+## Best Practices
+
+### 1. State Segregation
+Keep business logic (data processing) out of the state machine's navigational structure. The state machine should only be concerned with "What screen am I on?".
+
+### 2. Priority Gating
+Use `priority` to ensure critical events are handled first.
+- **Global Interrupts**: `100+`
+- **Normal Transitions**: `1-50`
+- **Fallback**: Implicitly `0` (lowest, checked last).
+
+### 3. CancellationToken
+Always ensure your custom `.Action()` delegates or `.When.Condition()` lambdas check `cancellationToken.IsCancellationRequested` if they perform long-running operations.
 
 ---
 
