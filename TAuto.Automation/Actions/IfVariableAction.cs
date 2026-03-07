@@ -55,17 +55,21 @@ public class IfVariableAction : ActionBase
             return Task.FromResult(ActionResult.Fail("Variable name not set"));
         
         bool conditionMet = EvaluateCondition(context);
-        
-        if (conditionMet)
-        {
-            if (!string.IsNullOrEmpty(ThenActionId))
-                return Task.FromResult(ActionResult.Jump(ThenActionId));
-        }
-        else
-        {
-            if (!string.IsNullOrEmpty(ElseActionId))
-                return Task.FromResult(ActionResult.Jump(ElseActionId));
-        }
+
+if (conditionMet)
+{
+    if (!string.IsNullOrEmpty(ThenActionId))
+        return Task.FromResult(ActionResult.Jump(ThenActionId));
+    
+    return Task.FromResult(ActionResult.Ok());  // condition true
+}
+else
+{
+    if (!string.IsNullOrEmpty(ElseActionId))
+        return Task.FromResult(ActionResult.Jump(ElseActionId));
+    
+    return Task.FromResult(ActionResult.Fail("Condition not met"));  // ← condition false
+}
         
         return Task.FromResult(ActionResult.Ok());
     }
