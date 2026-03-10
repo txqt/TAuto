@@ -434,6 +434,36 @@ public class ProcessManagerService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Send an IPC message to a specific running worker.
+    /// Returns true if the message was written to the pipe successfully.
+    /// </summary>
+    public async Task<bool> SendMessageToWorkerAsync(string workerId, IpcMessage message)
+    {
+        if (!_workers.TryGetValue(workerId, out var worker))
+        {
+            _logger?.LogWarning("SendMessageToWorkerAsync: Worker '{WorkerId}' not found.", workerId);
+            return false;
+        }
+
+        if (worker.Writer == null)
+        {
+            _logger?.LogWarning("SendMessageToWorkerAsync: Worker '{WorkerId}' has no pipe writer.", workerId);
+            return false;
+        }
+
+        try
+        {
+            await worker.Writer.WriteLineAsync(message.ToJson());
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError("SendMessageToWorkerAsync: Failed to send to '{WorkerId}': {Error}", workerId, ex.Message);
+            return false;
+        }
+    }
+
     public List<(string Id, bool IsRunning, long MemoryBytes)> GetWorkerStatuses()
     {
         return _workers.Values.Select(w => (
