@@ -58,6 +58,22 @@ public class ImageWrapper : IImage
         _image.Save(filePath);
     }
 
+    public async Task SaveAsync(Stream stream, ImageFormat format, CancellationToken cancellationToken = default)
+    {
+        switch (format)
+        {
+            case ImageFormat.Png:
+                await _image.SaveAsPngAsync(stream, cancellationToken);
+                break;
+            case ImageFormat.Jpeg:
+                await _image.SaveAsJpegAsync(stream, cancellationToken);
+                break;
+            case ImageFormat.Bmp:
+                await _image.SaveAsBmpAsync(stream, cancellationToken);
+                break;
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed) return;

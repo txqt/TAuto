@@ -8,6 +8,7 @@ namespace TAuto.Core.Imaging;
 /// </summary>
 public class RawImage : IImage
 {
+    private const int DefaultDpi = 2835; // ~72 DPI in pixels per meter
     private readonly byte[] _pixels;
     
     public int Width { get; }
@@ -27,12 +28,14 @@ public class RawImage : IImage
 
     public void Save(string filePath)
     {
-        // For debugging/logs. In a real system you'd use a library like ImageSharp.
-        // For this minimal cross-platform implementation, we just write a simple BMP file
-        // since WPF BitmapEncoder is unavailable here.
-        
         using var fs = new FileStream(filePath, FileMode.Create);
-        using var bw = new BinaryWriter(fs);
+        Save(fs, ImageFormat.Bmp);
+    }
+
+    public void Save(Stream stream, ImageFormat format)
+    {
+        // Minimal BMP implementation for RawImage
+        using var bw = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
         
         // BMP Header
         int fileSize = 54 + _pixels.Length;
@@ -50,18 +53,27 @@ public class RawImage : IImage
         bw.Write((short)32); // Bits per pixel
         bw.Write(0); // Compression
         bw.Write(_pixels.Length); // Image size
-        bw.Write(2835); // Horizontal resolution
-        bw.Write(2835); // Vertical resolution
+        bw.Write(DefaultDpi); // Horizontal resolution
+        bw.Write(DefaultDpi); // Vertical resolution
         bw.Write(0); // Colors in color table
         bw.Write(0); // Important color count
         
-        // Pixel data (BMP expects bottoms-up, but for raw debug dumps, writing 
-        // raw bytes is sometimes acceptable. However, we'll write rows bottom-up for proper BMP format if BGRA).
+        // Pixel data (BMP bottoms-up)
         int rowStride = Width * 4;
         for (int y = Height - 1; y >= 0; y--)
         {
             bw.Write(_pixels, y * rowStride, rowStride);
         }
+    }
+
+    public Task SaveAsync(Stream stream, ImageFormat format, CancellationToken cancellationToken = default)
+    {
+        // Since the current implementation is already efficient with BinaryWriter and memory streams,
+        // and doesn't involve heavy external CPU/IO outside of the stream itself, 
+        // we wrap it in a Task for interface consistency. 
+        // For RawImage, actual async IO happens at the stream level if it's a FileStream wrapper.
+        Save(stream, format);
+        return Task.CompletedTask;
     }
 
     public void Dispose()
