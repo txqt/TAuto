@@ -23,4 +23,9 @@ public interface IDeviceProviderService
     /// </summary>
     /// <param name="targetId">Device serial (Android) or Window Handle (Windows)</param>
     IDeviceController CreateController(string targetId);
+    
+    /// <summary>
+    /// Checks if a targeted device is currently online and available to accept commands.
+    /// </summary>
+    Task<bool> IsDeviceOnlineAsync(string targetId);
 }
