@@ -164,6 +164,7 @@ public class ProcessManagerService : IDisposable
                 // FIX-1 (Audit): exitCode -1 IS now a crash (unhandled exception).
                 // Only -2 (deliberate startup timeout) is treated as non-crash.
                 // FIX-4 (Audit): exitCode -3 = hardware unavailable — crash but NO auto-restart.
+                bool isStartTimeout = exitCode == -2;
                 bool isCrash = exitCode != 0 && exitCode != -2;
                 bool isHardwareMissing = exitCode == -3;
                 bool isNativeCrash = exitCode != 0 && exitCode != -1 && exitCode != -2 && exitCode != -3 && exitCode != -4;
@@ -183,12 +184,26 @@ public class ProcessManagerService : IDisposable
                     }
                 }
 
-                OnWorkerStatusChanged?.Invoke(workerId, isCrash ? (isHardwareMissing ? WorkerStates.HardwareMissing : (isNativeCrash ? WorkerStates.Crashed : WorkerStates.Crashed)) : (isReaped ? WorkerStates.ZombieReaped : WorkerStates.Stopped));
+                string status;
+                if (isStartTimeout)
+                {
+                    status = WorkerStates.StartTimeout;
+                }
+                else if (isCrash)
+                {
+                    status = isHardwareMissing ? WorkerStates.HardwareMissing
+                        : (isNativeCrash ? WorkerStates.Crashed : WorkerStates.Crashed);
+                }
+                else
+                {
+                    status = isReaped ? WorkerStates.ZombieReaped : WorkerStates.Stopped;
+                }
+                OnWorkerStatusChanged?.Invoke(workerId, status);
 
                 bool shouldRestart = false;
                 if (_workers.TryGetValue(workerId, out var w))
                 {
-                    shouldRestart = AutoRestart && (isCrash || isReaped) && !isHardwareMissing && !isNativeCrash && !_disposed && w.IsInitialized && !_isShuttingDown;
+                    shouldRestart = AutoRestart && (isCrash || isReaped) && !isStartTimeout && !isHardwareMissing && !isNativeCrash && !_disposed && w.IsInitialized && !_isShuttingDown;
                 }
 
                 await RemoveWorkerAsync(workerId);

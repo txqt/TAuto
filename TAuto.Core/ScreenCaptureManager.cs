@@ -84,6 +84,9 @@ public class ScreenCaptureManager
             {
                 _consecutiveTimeouts++;
                 Debug.WriteLine($"[ScreenCapture] ⚠️ Capture timed out after {CaptureTimeoutMs}ms (consecutive: {_consecutiveTimeouts})");
+                // Issue 9 fix: clear stale capture so callers don't reuse old frames
+                LastScreenCapture = null;
+                LastCaptureTime = null;
                 return false;
             }
 
@@ -99,6 +102,9 @@ public class ScreenCaptureManager
         catch (Exception ex)
         {
             Debug.WriteLine($"[ScreenCapture] ❌ Capture failed: {ex.Message}");
+            // Clear stale capture on exception
+            LastScreenCapture = null;
+            LastCaptureTime = null;
         }
         
         return false;
