@@ -1,5 +1,9 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
+using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using AutoBot.Shared.Ipc;
@@ -16,6 +20,9 @@ public class WorkerIpcListener
     private readonly Action<string, WorkerHeartbeat>? _onWorkerHeartbeat;
     private readonly Action<string, WorkerLogEntry>? _onWorkerLog;
     private readonly Action<string, string>? _onWorkerStatusChanged;
+
+    // Pending variable snapshot requests keyed by workerId
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<Dictionary<string, JsonElement>>> _pendingVarRequests = new();
 
     public WorkerIpcListener(
         ComputeTokenService tokenService,
@@ -83,6 +90,14 @@ public class WorkerIpcListener
                     case IpcMessageTypes.ReleaseToken:
                         _tokenService.Release(worker.WorkerId);
                         break;
+
+                    case IpcMessageTypes.VariablesSnapshot:
+                        var snapshot = msg.GetPayload<Dictionary<string, JsonElement>>();
+                        if (_pendingVarRequests.TryRemove(worker.WorkerId, out var tcs))
+                        {
+                            tcs.TrySetResult(snapshot ?? new Dictionary<string, JsonElement>());
+                        }
+                        break;
                 }
             }
         }
@@ -95,6 +110,36 @@ public class WorkerIpcListener
         finally
         {
             _tokenService.ReleaseAllForWorker(worker.WorkerId);
+            // Cancel any pending variable request for this worker
+            if (_pendingVarRequests.TryRemove(worker.WorkerId, out var pendingTcs))
+                pendingTcs.TrySetCanceled();
+        }
+    }
+
+    /// <summary>
+    /// Requests variables from a worker and waits for the snapshot reply.
+    /// The actual IPC send must be done by the caller; this only registers the wait.
+    /// </summary>
+    public async Task<Dictionary<string, JsonElement>?> WaitForVariablesAsync(string workerId, int timeoutMs = 5000)
+    {
+        var tcs = new TaskCompletionSource<Dictionary<string, JsonElement>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingVarRequests[workerId] = tcs;
+
+        using var cts = new CancellationTokenSource(timeoutMs);
+        using var reg = cts.Token.Register(() =>
+        {
+            if (_pendingVarRequests.TryRemove(workerId, out var removed))
+                removed.TrySetCanceled();
+        });
+
+        try
+        {
+            return await tcs.Task;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger?.LogWarning("Variable request for worker '{WorkerId}' timed out after {Timeout}ms.", workerId, timeoutMs);
+            return null;
         }
     }
 }

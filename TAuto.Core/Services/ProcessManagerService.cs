@@ -473,6 +473,28 @@ public class ProcessManagerService : IDisposable
         )).ToList();
     }
 
+    /// <summary>
+    /// Sends a RequestVariables IPC message to a worker and waits for the VariablesSnapshot reply.
+    /// Returns null if the worker is not found, pipe is broken, or the request times out.
+    /// </summary>
+    public async Task<Dictionary<string, System.Text.Json.JsonElement>?> RequestVariablesAsync(string workerId, int timeoutMs = 5000)
+    {
+        // 1. Register the wait BEFORE sending the request to avoid race conditions
+        var waitTask = _ipcListener.WaitForVariablesAsync(workerId, timeoutMs);
+
+        // 2. Send the request
+        var msg = IpcMessage.Create(IpcMessageTypes.RequestVariables);
+        var sent = await SendMessageToWorkerAsync(workerId, msg);
+        if (!sent)
+        {
+            _logger?.LogWarning("RequestVariablesAsync: Failed to send request to worker '{WorkerId}'.", workerId);
+            return null;
+        }
+
+        // 3. Wait for the response
+        return await waitTask;
+    }
+
 
 
     private Task RemoveWorkerAsync(string workerId)
