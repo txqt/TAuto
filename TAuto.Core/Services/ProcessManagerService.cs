@@ -58,6 +58,7 @@ public class ProcessManagerService : IDisposable
 
     // Events
     public event Action<string, WorkerLogEntry>? OnWorkerLog;
+    public event Action<string, WorkerTraceEntry>? OnWorkerTrace;
     public event Action<string, string>? OnWorkerStatusChanged;
     public event Action<string, WorkerHeartbeat>? OnWorkerHeartbeat;
     public event Func<WorkerStartupArgs, string, Task>? OnAutoRestartRequested;
@@ -95,6 +96,7 @@ public class ProcessManagerService : IDisposable
         _ipcListener = new WorkerIpcListener(_tokenService, _logger, 
             (w, hb) => OnWorkerHeartbeat?.Invoke(w, hb),
             (w, l) => OnWorkerLog?.Invoke(w, l),
+            (w, t) => OnWorkerTrace?.Invoke(w, t),
             (w, s) => OnWorkerStatusChanged?.Invoke(w, s));
     }
 

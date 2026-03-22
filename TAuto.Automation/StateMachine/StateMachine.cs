@@ -369,10 +369,23 @@ public class StateMachine
     private void LogTrace(string eventType, string stateName, string? toState = null, string? details = null, int pollCount = 0, double elapsedMs = 0)
     {
         Trace.Log(eventType, stateName, toState, details, pollCount, elapsedMs);
-        
+        var entry = new StateMachineTraceEntry
+        {
+            Timestamp = DateTime.UtcNow,
+            EventType = eventType,
+            StateName = stateName,
+            TransitionTo = toState,
+            Details = details,
+            PollCount = pollCount,
+            ElapsedMs = elapsedMs
+        };
+
+        // Global trace sink for hosts (Engine/Worker)
+        StateMachineTraceRouter.Emit(entry);
+
         if (OnTrace != null && Trace.IsEnabled)
         {
-            OnTrace.Invoke(this, new StateMachineTraceEntry { EventType = eventType, StateName = stateName, TransitionTo = toState, Details = details, PollCount = pollCount, ElapsedMs = elapsedMs });
+            OnTrace.Invoke(this, entry);
         }
     }
 }

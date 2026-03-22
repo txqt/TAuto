@@ -19,6 +19,7 @@ public class WorkerIpcListener
     private readonly ILogger? _logger;
     private readonly Action<string, WorkerHeartbeat>? _onWorkerHeartbeat;
     private readonly Action<string, WorkerLogEntry>? _onWorkerLog;
+    private readonly Action<string, WorkerTraceEntry>? _onWorkerTrace;
     private readonly Action<string, string>? _onWorkerStatusChanged;
 
     // Pending variable snapshot requests keyed by workerId
@@ -29,12 +30,14 @@ public class WorkerIpcListener
         ILogger? logger,
         Action<string, WorkerHeartbeat>? onWorkerHeartbeat,
         Action<string, WorkerLogEntry>? onWorkerLog,
+        Action<string, WorkerTraceEntry>? onWorkerTrace,
         Action<string, string>? onWorkerStatusChanged)
     {
         _tokenService = tokenService;
         _logger = logger;
         _onWorkerHeartbeat = onWorkerHeartbeat;
         _onWorkerLog = onWorkerLog;
+        _onWorkerTrace = onWorkerTrace;
         _onWorkerStatusChanged = onWorkerStatusChanged;
     }
 
@@ -64,7 +67,16 @@ public class WorkerIpcListener
                         var log = msg.GetPayload<WorkerLogEntry>();
                         if (log != null)
                         {
+                            if (string.IsNullOrEmpty(log.WorkerId))
+                                log.WorkerId = worker.WorkerId;
                             _onWorkerLog?.Invoke(worker.WorkerId, log);
+                        }
+                        break;
+                    case IpcMessageTypes.Trace:
+                        var trace = msg.GetPayload<WorkerTraceEntry>();
+                        if (trace != null)
+                        {
+                            _onWorkerTrace?.Invoke(worker.WorkerId, trace);
                         }
                         break;
 
