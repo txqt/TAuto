@@ -203,6 +203,12 @@ public abstract class BotBase
         await Context.Device.SwipeAsync(x1, y1, x2, y2, durationMs);
     }
 
+    protected async Task LongPress(int x, int y, int durationMs = 500)
+    {
+        CheckCancelled();
+        await Context.Device.LongPressAsync(x, y, durationMs);
+    }
+
     #endregion
 
 

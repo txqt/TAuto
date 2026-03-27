@@ -41,8 +41,8 @@ public interface ITemplateRepository
 
 /// <summary>
 /// Platform-independent computer vision interface.
-/// Aggregates template matching and repository operations.
+/// Aggregates template matching, color detection, and repository operations.
 /// </summary>
-public interface IVisionService : ITemplateMatcher, ITemplateRepository
+public interface IVisionService : ITemplateMatcher, IColorDetector, ITemplateRepository
 {
 }

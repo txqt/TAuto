@@ -21,7 +21,7 @@ public class ScheduledJob
     public string Name { get; set; } = "New Job";
     public string ScriptPath { get; set; } = string.Empty;
     public string DeviceSerial { get; set; } = string.Empty;
-    
+
     public ScheduleType ScheduleType { get; set; } = ScheduleType.Interval;
     public string CronExpression { get; set; } = "* * * * *"; // Default every minute
     public int IntervalMinutes { get; set; } = 30;

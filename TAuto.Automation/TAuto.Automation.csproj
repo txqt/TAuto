@@ -1,8 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-    <PropertyGroup>
-        <TargetFramework>net8.0-windows</TargetFramework>
-        <Nullable>enable</Nullable>
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows$(WindowsTfmVersion)</TargetFramework>
+    <TargetPlatformVersion>$(WindowsTfmVersion)</TargetPlatformVersion>
+    <TargetPlatformMinVersion>$(WindowsTfmVersion)</TargetPlatformMinVersion>
+    <TargetPlatformMoniker>Windows,Version=$(TargetPlatformVersion)</TargetPlatformMoniker>
+    <TargetPlatformDisplayName>Windows SDK</TargetPlatformDisplayName>
+    <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <RootNamespace>TAuto.Automation</RootNamespace>
         <AssemblyName>TAuto.Automation</AssemblyName>

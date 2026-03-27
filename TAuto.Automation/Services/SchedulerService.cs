@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using TAuto.Core.Models;
 using TAuto.Core;
-using NCrontab;
 
 namespace TAuto.Automation.Services;
 
@@ -134,45 +133,23 @@ public class SchedulerService : IDisposable
     
     private void UpdateNextRunTime(ScheduledJob job)
     {
-        var now = DateTime.Now;
-        
-        if (job.ScheduleType == ScheduleType.Interval)
-        {
-            var baseTime = job.LastRunTime ?? now;
-            job.NextRunTime = baseTime.AddMinutes(job.IntervalMinutes);
-            
-            if (job.NextRunTime <= now)
+        var nextRunUtc = ScheduleCalculator.ComputeNextRunUtc(
+            new ScheduleDefinition
             {
-                job.NextRunTime = now.AddMinutes(job.IntervalMinutes);
-            }
-        }
-        else if (job.ScheduleType == ScheduleType.Cron)
-        {
-            try
-            {
-                var schedule = CrontabSchedule.Parse(job.CronExpression);
-                job.NextRunTime = schedule.GetNextOccurrence(now);
-            }
-            catch (Exception ex)
-            {
-                Log($"Error parsing Cron for job {job.Name}: {ex.Message}");
-                job.IsEnabled = false;
-                return;
-            }
-        }
+                Type = job.ScheduleType,
+                CronExpression = job.CronExpression,
+                IntervalMinutes = job.IntervalMinutes,
+                StartupVarianceMinutes = job.StartupVarianceMinutes
+            },
+            job.IsEnabled,
+            DateTime.UtcNow);
 
-        // Fleet de-correlation: apply Gaussian phase shift
-        if (job.StartupVarianceMinutes > 0 && job.NextRunTime.HasValue)
+        job.NextRunTime = nextRunUtc?.ToLocalTime();
+
+        if (job.IsEnabled && job.NextRunTime == null && job.ScheduleType == ScheduleType.Cron && !string.IsNullOrWhiteSpace(job.CronExpression))
         {
-            var rng = new Random(job.Id.GetHashCode() ^ DateTime.Now.Ticks.GetHashCode());
-            double u1 = 1.0 - rng.NextDouble();
-            double u2 = 1.0 - rng.NextDouble();
-            double z = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
-            double offsetMinutes = z * (job.StartupVarianceMinutes / 2.0); // stdDev = half variance
-            job.NextRunTime = job.NextRunTime.Value.AddMinutes(offsetMinutes);
-            // Don't schedule in the past
-            if (job.NextRunTime <= now)
-                job.NextRunTime = now.AddMinutes(Math.Abs(offsetMinutes) + 1);
+            Log($"Error parsing Cron for job {job.Name}: invalid expression");
+            job.IsEnabled = false;
         }
     }
     

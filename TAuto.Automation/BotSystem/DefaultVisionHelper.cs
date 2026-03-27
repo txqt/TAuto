@@ -92,7 +92,44 @@ public class DefaultVisionHelper : IVisionHelper
         {
             if (await ExistsAsync(templatePath, threshold))
                 return true;
-            
+
+            await Delay(500);
+        }
+        return false;
+    }
+
+    public async Task<Point?> FindColorAsync(Color color, int tolerance = 10, Rectangle? region = null, int minPixelCount = 1)
+    {
+        CheckCancelled();
+        await Context.UpdateScreenCaptureAsync();
+
+        if (Context.LastScreenCapture == null) return null;
+
+        var result = Context.Vision.FindColor(Context.LastScreenCapture, new ColorSearchOptions
+        {
+            TargetColor = color,
+            Tolerance = tolerance,
+            SearchRegion = region,
+            MinPixelCount = minPixelCount
+        });
+
+        if (result.Found)
+        {
+            Context.LastFoundImageLocation = result.CenterLocation;
+            return result.CenterLocation;
+        }
+
+        return null;
+    }
+
+    public async Task<bool> WaitForColorAsync(Color color, int timeoutMs = 5000, int tolerance = 10, Rectangle? region = null, int minPixelCount = 1)
+    {
+        var start = DateTime.Now;
+        while ((DateTime.Now - start).TotalMilliseconds < timeoutMs)
+        {
+            if ((await FindColorAsync(color, tolerance, region, minPixelCount)) != null)
+                return true;
+
             await Delay(500);
         }
         return false;

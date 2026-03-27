@@ -12,6 +12,7 @@ public interface ITouchInputDevice
 {
     Task<bool> TapAsync(int x, int y);
     Task<bool> SwipeAsync(int x1, int y1, int x2, int y2, int durationMs);
+    Task<bool> LongPressAsync(int x, int y, int durationMs);
 }
 
 public interface IKeyboardInputDevice
