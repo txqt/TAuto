@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using TAuto.Core.Imaging;
 
@@ -10,27 +11,46 @@ namespace TAuto.Core;
 /// Thread-safe: captures can be read from UI thread while updated from background.
 /// Anti-Freeze: captures are wrapped in a timeout to prevent hanging if the target window freezes.
 /// </summary>
-public class ScreenCaptureManager
+public class ScreenCaptureManager : IDisposable
 {
     private readonly IDeviceController _device;
     private readonly object _lock = new();
-    
+
     private IImage? _lastScreenCapture;
     private DateTime? _lastCaptureTime;
     private int _consecutiveTimeouts = 0;
 
-    public IImage? LastScreenCapture 
-    { 
+    private CancellationTokenSource? _captureLoopCts;
+    private Task? _captureLoopTask;
+
+    /// <summary>
+    /// Event fired whenever a new frame is successfully captured by the continuous loop.
+    /// Used by pipelines (e.g. VisionPipeline) for a push-based model.
+    /// </summary>
+    public event EventHandler<IImage>? FrameCaptured;
+
+    public IImage? LastScreenCapture
+    {
         get { lock (_lock) { return _lastScreenCapture; } }
-        private set { lock (_lock) { _lastScreenCapture = value; } }
+        private set
+        {
+            lock (_lock)
+            {
+                if (_lastScreenCapture != value)
+                {
+                    _lastScreenCapture?.Dispose();
+                }
+                _lastScreenCapture = value;
+            }
+        }
     }
-    
-    public DateTime? LastCaptureTime 
-    { 
+
+    public DateTime? LastCaptureTime
+    {
         get { lock (_lock) { return _lastCaptureTime; } }
         private set { lock (_lock) { _lastCaptureTime = value; } }
     }
-    
+
     public int CaptureIntervalMs { get; set; } = 100;
 
     /// <summary>
@@ -54,6 +74,74 @@ public class ScreenCaptureManager
         _device = device ?? throw new ArgumentNullException(nameof(device));
     }
 
+    /// <summary>
+    /// Starts a continuous background capture loop emitting frames via FrameCaptured.
+    /// Respects CaptureIntervalMs for pacing.
+    /// </summary>
+    public void StartCaptureLoop()
+    {
+        lock (_lock)
+        {
+            if (_captureLoopCts != null) return;
+            _captureLoopCts = new CancellationTokenSource();
+            _captureLoopTask = Task.Run(() => CaptureLoopAsync(_captureLoopCts.Token));
+        }
+    }
+
+    /// <summary>
+    /// Stops the continuous background capture loop.
+    /// </summary>
+    public void StopCaptureLoop()
+    {
+        lock (_lock)
+        {
+            if (_captureLoopCts == null) return;
+            _captureLoopCts.Cancel();
+            _captureLoopCts.Dispose();
+            _captureLoopCts = null;
+        }
+    }
+
+    private async Task CaptureLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                var interval = TimeSpan.FromMilliseconds(Math.Max(1, CaptureIntervalMs));
+                using var timer = new PeriodicTimer(interval);
+
+                while (await timer.WaitForNextTickAsync(ct))
+                {
+                    if (string.IsNullOrEmpty(_device.TargetId))
+                        continue;
+
+                    var success = await DoCaptureInternalAsync(ct);
+
+                    if (success && LastScreenCapture != null)
+                    {
+                        // Fire event, but callers DO NOT own LastScreenCapture, so they must handle it
+                        // before it gets disposed on the next loop tick, or clone it.
+                        FrameCaptured?.Invoke(this, LastScreenCapture);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ScreenCaptureManager] Loop error: {ex.Message}");
+                await Task.Delay(1000, ct); // Cool down on error
+            }
+        }
+    }
+
+    /// <summary>
+    /// Legacy compatibility API: Requests an on-demand update of the screen capture.
+    /// If the background loop is running, this will just return true if the current frame is fresh enough.
+    /// </summary>
     public async Task<bool> UpdateScreenCaptureAsync(bool force = false)
     {
         if (string.IsNullOrEmpty(_device.TargetId))
@@ -66,7 +154,7 @@ public class ScreenCaptureManager
             if (elapsed < MinCaptureIntervalMs)
                 return LastScreenCapture != null;
         }
-            
+
         if (!force && LastScreenCapture != null && LastCaptureTime.HasValue)
         {
             var elapsed = (DateTime.Now - LastCaptureTime.Value).TotalMilliseconds;
@@ -74,40 +162,54 @@ public class ScreenCaptureManager
                 return true;
         }
 
+        return await DoCaptureInternalAsync(CancellationToken.None);
+    }
+
+    private async Task<bool> DoCaptureInternalAsync(CancellationToken loopCt)
+    {
         try
         {
-            var captureTask = _device.CaptureScreenAsync();
-            var timeoutTask = Task.Delay(CaptureTimeoutMs);
-            var completedTask = await Task.WhenAny(captureTask, timeoutTask);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(loopCt);
+            timeoutCts.CancelAfter(CaptureTimeoutMs);
 
-            if (completedTask == timeoutTask)
-            {
-                _consecutiveTimeouts++;
-                Debug.WriteLine($"[ScreenCapture] ⚠️ Capture timed out after {CaptureTimeoutMs}ms (consecutive: {_consecutiveTimeouts})");
-                // Issue 9 fix: clear stale capture so callers don't reuse old frames
-                LastScreenCapture = null;
-                LastCaptureTime = null;
-                return false;
-            }
-
-            var capture = await captureTask;
+            var capture = await _device.CaptureScreenAsync();
             if (capture != null)
             {
-                LastScreenCapture = capture;
+                LastScreenCapture = capture; // Automatically disposes previous
                 LastCaptureTime = DateTime.Now;
                 _consecutiveTimeouts = 0;
                 return true;
             }
         }
+        catch (OperationCanceledException)
+        {
+            if (!loopCt.IsCancellationRequested)
+            {
+                _consecutiveTimeouts++;
+                Debug.WriteLine($"[ScreenCapture] ⚠️ Capture timed out after {CaptureTimeoutMs}ms (consecutive: {_consecutiveTimeouts})");
+                LastScreenCapture = null;
+                LastCaptureTime = null;
+            }
+        }
         catch (Exception ex)
         {
             Debug.WriteLine($"[ScreenCapture] ❌ Capture failed: {ex.Message}");
-            // Clear stale capture on exception
             LastScreenCapture = null;
             LastCaptureTime = null;
         }
-        
+
         return false;
+    }
+
+    public void Dispose()
+    {
+        StopCaptureLoop();
+
+        lock (_lock)
+        {
+            _lastScreenCapture?.Dispose();
+            _lastScreenCapture = null;
+        }
     }
 }
 

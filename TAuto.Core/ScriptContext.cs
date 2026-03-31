@@ -89,17 +89,25 @@ public class ScriptContext
     public bool IsUrgentMode { get; set; } = false;
     
     public ILoggerService? Logger { get; }
-    
+
     public ScriptContext(IDeviceController device, IVisionService vision, IOcrService ocr, ILoggerService? logger = null)
     {
         Device = device ?? throw new ArgumentNullException(nameof(device));
         Vision = vision ?? throw new ArgumentNullException(nameof(vision));
         Ocr = ocr ?? throw new ArgumentNullException(nameof(ocr));
         Logger = logger;
-        
+
         _captureManager = new ScreenCaptureManager(Device);
     }
-    
+
+    public void StartCaptureLoop() => _captureManager.StartCaptureLoop();
+    public void StopCaptureLoop() => _captureManager.StopCaptureLoop();
+    public event EventHandler<IImage>? FrameCaptured
+    {
+        add => _captureManager.FrameCaptured += value;
+        remove => _captureManager.FrameCaptured -= value;
+    }
+
     public Task<bool> UpdateScreenCaptureAsync(bool force = false)
     {
         return _captureManager.UpdateScreenCaptureAsync(force);
