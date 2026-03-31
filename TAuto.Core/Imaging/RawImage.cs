@@ -26,6 +26,11 @@ public class RawImage : IImage
         return _pixels;
     }
 
+    public void CopyPixelDataTo(byte[] destination)
+    {
+        Buffer.BlockCopy(_pixels, 0, destination, 0, Math.Min(_pixels.Length, destination.Length));
+    }
+
     public void Save(string filePath)
     {
         using var fs = new FileStream(filePath, FileMode.Create);

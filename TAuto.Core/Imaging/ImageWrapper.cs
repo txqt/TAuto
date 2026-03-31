@@ -53,6 +53,11 @@ public class ImageWrapper : IImage
         return pixelData;
     }
 
+    public void CopyPixelDataTo(byte[] destination)
+    {
+        _image.CopyPixelDataTo(destination);
+    }
+
     public void Save(string filePath)
     {
         _image.Save(filePath);

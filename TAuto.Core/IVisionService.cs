@@ -37,6 +37,11 @@ public interface ITemplateRepository
     /// Delete template by path
     /// </summary>
     bool DeleteTemplate(string path);
+
+    /// <summary>
+    /// Preloads templates into memory to avoid I/O delays during execution
+    /// </summary>
+    void PreloadTemplates(IEnumerable<string> paths, string? baseDirectory = null);
 }
 
 /// <summary>

@@ -27,6 +27,12 @@ public interface IImage : IDisposable
     /// Format defines the byte layout (e.g. BGRA32).
     /// </summary>
     byte[] GetPixelData();
+
+    /// <summary>
+    /// Copies raw pixel data into the provided destination buffer.
+    /// Destination length must be at least Width * Height * 4 bytes.
+    /// </summary>
+    void CopyPixelDataTo(byte[] destination);
     
     /// <summary>
     /// Saves the image to a file path.
