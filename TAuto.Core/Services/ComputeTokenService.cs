@@ -36,12 +36,17 @@ public class ComputeTokenService : IDisposable
         _semaphore = new SemaphoreSlim(_maxTokens, _maxTokens);
     }
 
-    /// <summary>
-    /// Try to acquire a compute token for a specific Worker within the given timeout.
-    /// Returns true if a token was granted, false if timed out.
-    /// </summary>
     public async Task<bool> TryAcquireAsync(string workerId, int timeoutMs = 5000, CancellationToken ct = default)
     {
+        int currentHeld = _workerTokens.GetOrAdd(workerId, 0);
+        if (currentHeld == 0)
+        {
+            // Guaranteed minimum 1 token for forward progress (bypasses semaphore limit)
+            Interlocked.Increment(ref _activeTokens);
+            _workerTokens.AddOrUpdate(workerId, 1, (_, count) => count + 1);
+            return true;
+        }
+
         var acquired = await _semaphore.WaitAsync(timeoutMs, ct);
         if (acquired)
         {
@@ -57,7 +62,7 @@ public class ComputeTokenService : IDisposable
     public void Release(string workerId)
     {
         bool decremented = false;
-        _workerTokens.AddOrUpdate(workerId, 0, (_, count) =>
+        int remaining = _workerTokens.AddOrUpdate(workerId, 0, (_, count) =>
         {
             if (count > 0) { decremented = true; return count - 1; }
             return 0;
@@ -65,8 +70,13 @@ public class ComputeTokenService : IDisposable
 
         if (!decremented) return; // spurious release
 
-        _semaphore.Release();
         Interlocked.Decrement(ref _activeTokens);
+        
+        // Only release back to semaphore if this wasn't the guaranteed free token
+        if (remaining > 0)
+        {
+            _semaphore.Release();
+        }
     }
 
     /// <summary>
@@ -77,12 +87,14 @@ public class ComputeTokenService : IDisposable
     {
         if (_workerTokens.TryRemove(workerId, out var count) && count > 0)
         {
-            for (int i = 0; i < count; i++)
+            // The first token was free, so we only release (count - 1) to the semaphore.
+            int semaphoreTokensToRelease = count - 1;
+            
+            for (int i = 0; i < semaphoreTokensToRelease; i++)
             {
                 try
                 {
                     _semaphore.Release();
-                    Interlocked.Decrement(ref _activeTokens);
                 }
                 catch (SemaphoreFullException)
                 {
@@ -90,6 +102,8 @@ public class ComputeTokenService : IDisposable
                     break;
                 }
             }
+            
+            Interlocked.Add(ref _activeTokens, -count);
             System.Diagnostics.Debug.WriteLine(
                 $"[ComputeTokenService] Force-released {count} token(s) for crashed worker '{workerId}'");
         }

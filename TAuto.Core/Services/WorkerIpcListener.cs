@@ -25,6 +25,8 @@ public class WorkerIpcListener
     // Pending variable snapshot requests keyed by workerId
     private readonly ConcurrentDictionary<string, TaskCompletionSource<Dictionary<string, JsonElement>>> _pendingVarRequests = new();
 
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
+
     public WorkerIpcListener(
         ComputeTokenService tokenService,
         ILogger? logger,
@@ -96,7 +98,7 @@ public class WorkerIpcListener
                         var granted = await _tokenService.TryAcquireAsync(worker.WorkerId, 5000);
                         var response = IpcMessage.Create(
                             granted ? IpcMessageTypes.TokenGranted : IpcMessageTypes.TokenDenied);
-                        await worker.Writer.WriteLineAsync(response.ToJson());
+                        await SerializedWriteAsync(worker.Writer, response.ToJson());
                         break;
 
                     case IpcMessageTypes.ReleaseToken:
@@ -152,6 +154,19 @@ public class WorkerIpcListener
         {
             _logger?.LogWarning("Variable request for worker '{WorkerId}' timed out after {Timeout}ms.", workerId, timeoutMs);
             return null;
+        }
+    }
+
+    private async Task SerializedWriteAsync(StreamWriter writer, string json)
+    {
+        await _writeLock.WaitAsync();
+        try
+        {
+            await writer.WriteLineAsync(json);
+        }
+        finally
+        {
+            _writeLock.Release();
         }
     }
 }

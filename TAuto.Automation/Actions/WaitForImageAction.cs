@@ -1,4 +1,4 @@
-﻿using TAuto.Core;
+using TAuto.Core;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -68,6 +68,13 @@ public class WaitForImageAction : ActionBase
         set => SetProperty(ref _resultVariableName, value); 
     }
     
+    private int _consecutiveFrames = 1;
+    public int ConsecutiveFrames 
+    { 
+        get => _consecutiveFrames; 
+        set => SetProperty(ref _consecutiveFrames, value); 
+    }
+    
     // ===== Execute =====
     
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
@@ -85,6 +92,8 @@ public class WaitForImageAction : ActionBase
             return ActionResult.Fail($"Cannot load template: {TemplatePath}");
         
         DateTime startTime = DateTime.Now;
+        var confirmation = new TAuto.Automation.Utilities.DetectionConfirmation(ConsecutiveFrames);
+        TemplateMatchResult? matchResult = null;
         
         while (!ct.IsCancellationRequested)
         {
@@ -98,15 +107,16 @@ public class WaitForImageAction : ActionBase
             
             // Try to find image
             var result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
+            if (result.Found) matchResult = result;
             
-            if (result.Found)
+            if (confirmation.RecordResult(result.Found))
             {
-                context.LastFoundImageLocation = result.CenterLocation;
+                context.LastFoundImageLocation = matchResult!.CenterLocation;
                 
                 if (!string.IsNullOrEmpty(ResultVariableName))
                     context.SetVariable(ResultVariableName, true);
                 
-                return ActionResult.Ok(result.CenterLocation);
+                return ActionResult.Ok(matchResult.CenterLocation);
             }
             
             // Check timeout

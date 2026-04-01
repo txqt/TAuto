@@ -36,6 +36,7 @@ public class ProcessManagerService : IDisposable
     private bool _disposed;
     private volatile bool _isShuttingDown = false;
     private CancellationTokenSource _shutdownCts = new(); // FIX C-3: cancels pending restart delays during StopAll
+    private Timer? _memoryDiagnosticsTimer;
 
     /// <summary>Max seconds without heartbeat before a worker is considered zombie and killed.</summary>
     public int HeartbeatTimeoutSeconds 
@@ -98,6 +99,14 @@ public class ProcessManagerService : IDisposable
             (w, l) => OnWorkerLog?.Invoke(w, l),
             (w, t) => OnWorkerTrace?.Invoke(w, t),
             (w, s) => OnWorkerStatusChanged?.Invoke(w, s));
+
+        // Periodic memory diagnostic logging (Phase G)
+        if (_logger != null)
+        {
+            _memoryDiagnosticsTimer = new Timer(_ => 
+                TAuto.Core.Diagnostics.MemoryDiagnostics.LogMemorySnapshot(_logger, "Manager"), 
+                null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+        }
     }
 
 
@@ -112,6 +121,21 @@ public class ProcessManagerService : IDisposable
         _intentionalStops.TryRemove(workerId, out _);
         
         startupArgs.WorkerId = workerId;
+
+        // P3 (Audit): Compute expected payload checksum before sending args
+        if (!string.IsNullOrEmpty(startupArgs.BotDllPath) && File.Exists(startupArgs.BotDllPath))
+        {
+            try
+            {
+                using var sha256 = System.Security.Cryptography.SHA256.Create();
+                using var fs = File.OpenRead(startupArgs.BotDllPath);
+                startupArgs.ExpectedPayloadHash = Convert.ToHexString(sha256.ComputeHash(fs));
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning($"Failed to compute payload hash for '{startupArgs.BotDllPath}': {ex.Message}");
+            }
+        }
         // FIX-3 (Audit): Unique pipe name per session to avoid OS handle collisions on restart
         var pipeName = $"AutoBot_Worker_{workerId}_{Guid.NewGuid():N}";
 
@@ -451,6 +475,8 @@ public class ProcessManagerService : IDisposable
         }
     }
 
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _writeLocks = new();
+
     /// <summary>
     /// Send an IPC message to a specific running worker.
     /// Returns true if the message was written to the pipe successfully.
@@ -469,15 +495,34 @@ public class ProcessManagerService : IDisposable
             return false;
         }
 
+        var writeLock = _writeLocks.GetOrAdd(workerId, _ => new SemaphoreSlim(1, 1));
+        if (!await writeLock.WaitAsync(TimeSpan.FromSeconds(3)))
+        {
+            _logger?.LogError("SendMessageToWorkerAsync: Timeout acquiring IPC write lock for '{WorkerId}'. Server IPC is suspended.", workerId);
+            _ = RemoveWorkerAsync(workerId);
+            return false;
+        }
+
         try
         {
-            await worker.Writer.WriteLineAsync(message.ToJson());
+            // P2 (Audit): Enforce 3s write timeout natively using .NET 8 WaitAsync
+            await worker.Writer.WriteLineAsync(message.ToJson()).WaitAsync(TimeSpan.FromSeconds(3));
             return true;
+        }
+        catch (TimeoutException)
+        {
+            _logger?.LogError("SendMessageToWorkerAsync: Pipe write operation timed out for '{WorkerId}'. Disconnecting.", workerId);
+            _ = RemoveWorkerAsync(workerId);
+            return false;
         }
         catch (Exception ex)
         {
             _logger?.LogError("SendMessageToWorkerAsync: Failed to send to '{WorkerId}': {Error}", workerId, ex.Message);
             return false;
+        }
+        finally
+        {
+            writeLock.Release();
         }
     }
 
@@ -530,6 +575,10 @@ public class ProcessManagerService : IDisposable
             
             _heartbeatMonitor.Clear(workerId);
             _logStreamer.CloseWriter(workerId);
+            if (_writeLocks.TryRemove(workerId, out var writeLock))
+            {
+                writeLock.Dispose();
+            }
         }
         return Task.CompletedTask;
     }

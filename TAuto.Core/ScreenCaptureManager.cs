@@ -120,9 +120,8 @@ public class ScreenCaptureManager : IDisposable
 
                     if (success && LastScreenCapture != null)
                     {
-                        // Fire event, but callers DO NOT own LastScreenCapture, so they must handle it
-                        // before it gets disposed on the next loop tick, or clone it.
-                        FrameCaptured?.Invoke(this, LastScreenCapture);
+                        var frameClone = LastScreenCapture.Clone();
+                        FrameCaptured?.Invoke(this, frameClone);
                     }
                 }
             }

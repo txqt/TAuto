@@ -107,9 +107,11 @@ public class ExtractTextAction : ActionBase
 
         // 2. Crop Image
         IImage source = context.LastScreenCapture;
-        if (Width > 0 && Height > 0)
+        IImage? croppedSource = null;
+
+        try
         {
-            try 
+            if (Width > 0 && Height > 0)
             {
                 // Ensure bounds
                 int rawX = Math.Max(0, X);
@@ -124,7 +126,8 @@ public class ExtractTextAction : ActionBase
                 if (source is ImageWrapper wrapper)
                 {
                     var cropped = wrapper.InnerImage.Clone(x => x.Crop(new Rectangle(rawX, rawY, Width, Height)));
-                    source = new ImageWrapper(cropped);
+                    croppedSource = new ImageWrapper(cropped);
+                    source = croppedSource;
                 }
                 else
                 {
@@ -146,28 +149,20 @@ public class ExtractTextAction : ActionBase
                     catch { /* ignore debug save errors */ }
                 }
             }
-            catch (Exception ex)
-            {
-                return ActionResult.Fail($"Crop failed: {ex.Message}");
-            }
-        }
 
-        // 3. Perform OCR
-        try
-        {
-            // Route to the appropriate OCR method based on flags
+            // 3. Perform OCR
             string text;
             if (UseVoting)
             {
-                text = context.Ocr.GetTextWithVoting(source, Language, Scale, Whitelist, Threshold > 0 ? Threshold : 150, Invert, BorderSize, PageSegMode);
+                text = await Task.Run(() => context.Ocr.GetTextWithVoting(source, Language, Scale, Whitelist, Threshold > 0 ? Threshold : 150, Invert, BorderSize, PageSegMode), ct);
             }
             else if (UseSegmentation)
             {
-                text = context.Ocr.GetTextWithSegmentation(source, Language, Scale, Whitelist, Threshold > 0 ? Threshold : 150, Invert, BorderSize, PageSegMode);
+                text = await Task.Run(() => context.Ocr.GetTextWithSegmentation(source, Language, Scale, Whitelist, Threshold > 0 ? Threshold : 150, Invert, BorderSize, PageSegMode), ct);
             }
             else
             {
-                text = context.Ocr.GetText(source, Language, Scale, Whitelist, Threshold, Invert, BorderSize, PageSegMode);
+                text = await Task.Run(() => context.Ocr.GetText(source, Language, Scale, Whitelist, Threshold, Invert, BorderSize, PageSegMode), ct);
             }
             
             if (Trim && text != null)
@@ -183,7 +178,11 @@ public class ExtractTextAction : ActionBase
         }
         catch (Exception ex)
         {
-            return ActionResult.Fail($"OCR failed: {ex.Message}");
+            return ActionResult.Fail($"OCR or Crop failed: {ex.Message}");
+        }
+        finally
+        {
+            croppedSource?.Dispose();
         }
     }
 

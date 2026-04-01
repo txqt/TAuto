@@ -62,6 +62,11 @@ public abstract class BotBase
     {
         Context = context;
         CancellationToken = token;
+        
+        if (HealthMonitor != null)
+        {
+            Context.HealthMonitor = HealthMonitor;
+        }
     }
 
     /// <summary>

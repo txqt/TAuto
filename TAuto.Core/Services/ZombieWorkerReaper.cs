@@ -21,6 +21,7 @@ public class ZombieWorkerReaper : IDisposable
     
     private Timer? _heartbeatReaperTimer;
     private bool _disposed;
+    private readonly ConcurrentDictionary<string, int> _missedHeartbeats = new();
 
     public int HeartbeatTimeoutSeconds { get; set; } = 15;
 
@@ -70,12 +71,20 @@ public class ZombieWorkerReaper : IDisposable
                 var elapsed = (DateTime.UtcNow - lastHb.Value).TotalSeconds;
                 if (elapsed > HeartbeatTimeoutSeconds)
                 {
-                    _logger?.LogWarning(
-                        "HEARTBEAT REAPER: Worker '{WorkerId}' has not sent a heartbeat in {Elapsed:F0}s. Killing.",
-                        worker.WorkerId, elapsed);
-                    _intentionalStops.TryAdd(worker.WorkerId, "reaped");
-                    _processSpawner.KillProcess(worker.Process);
-                    _onWorkerStatusChanged?.Invoke(worker.WorkerId, WorkerStates.ZombieReaped);
+                    int missedCount = _missedHeartbeats.AddOrUpdate(worker.WorkerId, 1, (_, count) => count + 1);
+                    if (missedCount >= 3)
+                    {
+                        _logger?.LogWarning(
+                            "HEARTBEAT REAPER: Worker '{WorkerId}' missed 3 consecutive heartbeats (last seen {Elapsed:F0}s ago). Killing.",
+                            worker.WorkerId, elapsed);
+                        _intentionalStops.TryAdd(worker.WorkerId, "reaped");
+                        _processSpawner.KillProcess(worker.Process);
+                        _onWorkerStatusChanged?.Invoke(worker.WorkerId, WorkerStates.ZombieReaped);
+                    }
+                }
+                else
+                {
+                    _missedHeartbeats.TryRemove(worker.WorkerId, out _);
                 }
             }
             catch (Exception ex)

@@ -43,4 +43,9 @@ public interface IImage : IDisposable
     /// Saves the image to a stream in the specified format asynchronously.
     /// </summary>
     Task SaveAsync(Stream stream, ImageFormat format, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates a deep copy of the image.
+    /// </summary>
+    IImage Clone();
 }

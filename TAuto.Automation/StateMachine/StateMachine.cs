@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -168,6 +168,30 @@ public class StateMachine
 
             while (!ct.IsCancellationRequested && !transitioned)
             {
+                if (context.HealthMonitor != null)
+                {
+                    if (!context.HealthMonitor.CheckActivityTimeout() || context.HealthMonitor.Status != GameHealthStatus.Healthy)
+                    {
+                        var globalFallback = _sortedGlobalTransitions?.FirstOrDefault(t => t.Condition == null && t.IsFallback);
+                        if (globalFallback != null && !string.Equals(_currentState.Name, globalFallback.ToState, StringComparison.OrdinalIgnoreCase))
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[StateMachine] Triggered global fallback due to unhealthy game state ({context.HealthMonitor.Status}) in state '{_currentState.Name}'.");
+                            context.Logger?.Warning($"StateMachine triggered global fallback due to unhealthy game state ({context.HealthMonitor.Status}) in state '{_currentState.Name}'.");
+                            
+                            var gtResult = await ExecuteTransitionAsync(globalFallback, _currentState, context, variableStore, stateStartTime, 0, ct);
+                            if (gtResult != null) return gtResult;
+                            transitioned = true;
+                            
+                            context.HealthMonitor.Reset();
+                            break;
+                        }
+                        else
+                        {
+                            return ActionResult.Fail($"Game unhealthy ({context.HealthMonitor.Status}), but no valid global fallback transition exists.");
+                        }
+                    }
+                }
+
                 int effectiveTimeout = _currentState.MaxDurationMs > 0 ? _currentState.MaxDurationMs : DefaultStateTimeoutMs;
                 if (effectiveTimeout > 0 && (DateTime.UtcNow - stateStartTime).TotalMilliseconds >= effectiveTimeout)
                 {
@@ -263,6 +287,8 @@ public class StateMachine
     private async Task<ActionResult?> ExecuteTransitionAsync(StateTransition transition, State fromState, ScriptContext context, IVariableStore variableStore, DateTime stateStartTime, int pollCount, CancellationToken ct)
     {
         var transitionElapsedMs = (DateTime.UtcNow - stateStartTime).TotalMilliseconds;
+
+        context.HealthMonitor?.ReportActivity();
 
         // Record transition fire time for cooldown tracking
         transition.LastFiredUtc = DateTime.UtcNow;

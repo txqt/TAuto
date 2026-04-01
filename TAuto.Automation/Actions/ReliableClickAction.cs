@@ -136,6 +136,13 @@ public class ReliableClickAction : ActionBase
         get => _findTimeoutMs;
         set => SetProperty(ref _findTimeoutMs, value);
     }
+    
+    private int _consecutiveFrames = 1;
+    public int ConsecutiveFrames
+    {
+        get => _consecutiveFrames;
+        set => SetProperty(ref _consecutiveFrames, value);
+    }
 
     // ===== Execute =====
 
@@ -165,13 +172,18 @@ public class ReliableClickAction : ActionBase
             // ── Step 1: Find the target image ──
             TemplateMatchResult? match = null;
             DateTime findStart = DateTime.Now;
+            var confirmation = new TAuto.Automation.Utilities.DetectionConfirmation(ConsecutiveFrames);
+            bool isConfirmed = false;
             do
             {
                 await context.UpdateScreenCaptureAsync(force: true);
                 if (context.LastScreenCapture == null) return ActionResult.Fail("Cannot capture screen");
 
-                match = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
-                if (match.Found) break;
+                var result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
+                if (result.Found) match = result;
+
+                isConfirmed = confirmation.RecordResult(result.Found);
+                if (isConfirmed) break;
 
                 if ((DateTime.Now - findStart).TotalMilliseconds >= FindTimeoutMs)
                     return ActionResult.Fail($"Image not found after {FindTimeoutMs}ms (attempt {attempt}/{MaxRetries})");
@@ -179,7 +191,7 @@ public class ReliableClickAction : ActionBase
                 await Task.Delay(ConfirmCheckIntervalMs, ct);
             } while (!ct.IsCancellationRequested);
 
-            if (match == null || !match.Found) return ActionResult.Fail("Image not found");
+            if (!isConfirmed || match == null) return ActionResult.Fail("Image not found");
 
             // ── Step 2: Click with random offset ──
             int tapX = (int)match.CenterLocation.X + OffsetX;

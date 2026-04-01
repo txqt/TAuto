@@ -1,4 +1,4 @@
-﻿using TAuto.Core;
+using TAuto.Core;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -37,6 +37,13 @@ public class IfTextFoundAction : ActionBase
     
     public bool ForceFreshCapture { get; set; } = true;
     
+    private int _consecutiveFrames = 1;
+    public int ConsecutiveFrames 
+    { 
+        get => _consecutiveFrames; 
+        set => SetProperty(ref _consecutiveFrames, value); 
+    }
+    
     // ===== Execute =====
     
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
@@ -47,21 +54,32 @@ public class IfTextFoundAction : ActionBase
         if (string.IsNullOrEmpty(TargetText))
             return ActionResult.Fail("Target text not set");
         
-        // Mobile screenshot capture
-        await context.UpdateScreenCaptureAsync(force: ForceFreshCapture);
-        if (context.LastScreenCapture == null)
-            return ActionResult.Fail("Cannot capture screen");
+        var confirmation = new TAuto.Automation.Utilities.DetectionConfirmation(ConsecutiveFrames);
+        bool isConfirmed = false;
         
-        // Perform OCR
-        string foundText = context.Ocr.GetText(context.LastScreenCapture);
-        if (string.IsNullOrEmpty(foundText))
+        int maxAttempts = ConsecutiveFrames == 1 ? 1 : ConsecutiveFrames + 5;
+        for (int i = 0; i < maxAttempts; i++)
         {
-            // No text found at all -> goes to ELSE
-            return HandleBranch(false, context);
+            await context.UpdateScreenCaptureAsync(force: ForceFreshCapture);
+            if (context.LastScreenCapture == null)
+                return ActionResult.Fail("Cannot capture screen");
+            
+            string foundText = context.Ocr.GetText(context.LastScreenCapture);
+            bool found = !string.IsNullOrEmpty(foundText) && CheckMatch(foundText);
+            
+            if (confirmation.RecordResult(found))
+            {
+                isConfirmed = true;
+                break;
+            }
+            
+            if (ConsecutiveFrames > 1 && !isConfirmed && i < maxAttempts - 1)
+            {
+                await Task.Delay(200, ct);
+            }
         }
 
-        bool found = CheckMatch(foundText);
-        return HandleBranch(found, context);
+        return HandleBranch(isConfirmed, context);
     }
     
     private bool CheckMatch(string source)

@@ -26,6 +26,13 @@ public class RawImage : IImage
         return _pixels;
     }
 
+    public IImage Clone()
+    {
+        var newPixels = new byte[_pixels.Length];
+        Buffer.BlockCopy(_pixels, 0, newPixels, 0, _pixels.Length);
+        return new RawImage(Width, Height, newPixels);
+    }
+
     public void CopyPixelDataTo(byte[] destination)
     {
         Buffer.BlockCopy(_pixels, 0, destination, 0, Math.Min(_pixels.Length, destination.Length));

@@ -1,4 +1,4 @@
-﻿using TAuto.Core;
+using TAuto.Core;
 using System;
 using System.Linq;
 using System.Threading;
@@ -26,6 +26,13 @@ public class ClickTextAction : ActionBase
     public int OffsetX { get; set; } = 0;
     public int OffsetY { get; set; } = 0;
     
+    private int _consecutiveFrames = 1;
+    public int ConsecutiveFrames 
+    { 
+        get => _consecutiveFrames; 
+        set => SetProperty(ref _consecutiveFrames, value); 
+    }
+    
     // ===== Execute =====
     
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
@@ -36,18 +43,34 @@ public class ClickTextAction : ActionBase
         if (string.IsNullOrEmpty(TargetText))
             return ActionResult.Fail("Target text not set");
         
-        // Capture
-        await context.UpdateScreenCaptureAsync(force: true);
-        if (context.LastScreenCapture == null)
-            return ActionResult.Fail("Cannot capture screen");
+        var confirmation = new TAuto.Automation.Utilities.DetectionConfirmation(ConsecutiveFrames);
+        OcrResultBlock? match = null;
+        bool isConfirmed = false;
         
-        // Scan blocks
-        var blocks = context.Ocr.GetTextBlocks(context.LastScreenCapture);
+        int maxAttempts = ConsecutiveFrames == 1 ? 1 : ConsecutiveFrames + 5;
+        for (int i = 0; i < maxAttempts; i++)
+        {
+            await context.UpdateScreenCaptureAsync(force: true);
+            if (context.LastScreenCapture == null)
+                return ActionResult.Fail("Cannot capture screen");
+            
+            var blocks = context.Ocr.GetTextBlocks(context.LastScreenCapture);
+            var m = blocks.FirstOrDefault(b => CheckMatch(b.Text));
+            if (m != null) match = m;
+            
+            if (confirmation.RecordResult(m != null))
+            {
+                isConfirmed = true;
+                break;
+            }
+            
+            if (ConsecutiveFrames > 1 && !isConfirmed && i < maxAttempts - 1)
+            {
+                await Task.Delay(200, ct);
+            }
+        }
         
-        // Find matching block
-        var match = blocks.FirstOrDefault(b => CheckMatch(b.Text));
-        
-        if (match == null)
+        if (!isConfirmed || match == null)
             return ActionResult.Fail($"Text not found: {TargetText}");
             
         // Click center of text block

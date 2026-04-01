@@ -1,4 +1,4 @@
-﻿using TAuto.Core;
+using TAuto.Core;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -109,6 +109,17 @@ public class ClickImageAction : ActionBase
         set => SetProperty(ref _delayAfterMs, value); 
     }
     
+    private int _consecutiveFrames = 1;
+    /// <summary>
+    /// Number of consecutive frames the image must be detected before acting.
+    /// Prevents false positives from single-frame noise. Default 1.
+    /// </summary>
+    public int ConsecutiveFrames 
+    { 
+        get => _consecutiveFrames; 
+        set => SetProperty(ref _consecutiveFrames, value); 
+    }
+    
     // ===== Execute =====
     
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
@@ -130,6 +141,7 @@ public class ClickImageAction : ActionBase
         
         TemplateMatchResult? matchResult = null;
         DateTime startTime = DateTime.Now;
+        var confirmation = new TAuto.Automation.Utilities.DetectionConfirmation(ConsecutiveFrames);
         
         // Wait for image with timeout
         do
@@ -143,9 +155,14 @@ public class ClickImageAction : ActionBase
                 return ActionResult.Fail("Cannot capture screen");
             
             // Try to find image
-            matchResult = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
+            var result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
             
-            if (matchResult.Found)
+            if (result.Found)
+            {
+                matchResult = result;
+            }
+            
+            if (confirmation.RecordResult(result.Found))
                 break;
             
             // Check timeout

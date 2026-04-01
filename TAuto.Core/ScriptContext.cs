@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
@@ -47,6 +47,9 @@ public class ScriptContext
     
     /// <summary>Persistent session data (loaded from disk, saved on shutdown).</summary>
     public BotSession? Session { get; set; }
+    
+    /// <summary>Optional health monitor for the game being automated.</summary>
+    public GameHealthMonitor? HealthMonitor { get; set; }
     
     /// <summary>Short-term memory of recent actions and outcomes.</summary>
     public EpisodicMemory Memory { get; } = new();
@@ -108,9 +111,11 @@ public class ScriptContext
         remove => _captureManager.FrameCaptured -= value;
     }
 
-    public Task<bool> UpdateScreenCaptureAsync(bool force = false)
+    public async Task<bool> UpdateScreenCaptureAsync(bool force = false)
     {
-        return _captureManager.UpdateScreenCaptureAsync(force);
+        bool result = await _captureManager.UpdateScreenCaptureAsync(force);
+        HealthMonitor?.ReportCaptureResult(_captureManager.LastScreenCapture);
+        return result;
     }
     
     public T GetVariable<T>(string name, T defaultValue = default!) => _state.GetVariable(name, defaultValue);

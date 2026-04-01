@@ -1,4 +1,4 @@
-﻿using TAuto.Core;
+using TAuto.Core;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -68,6 +68,13 @@ public class IfImageFoundAction : ActionBase
         set => SetProperty(ref _storeLocation, value); 
     }
     
+    private int _consecutiveFrames = 1;
+    public int ConsecutiveFrames 
+    { 
+        get => _consecutiveFrames; 
+        set => SetProperty(ref _consecutiveFrames, value); 
+    }
+    
     // ===== Execute =====
     
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
@@ -84,20 +91,39 @@ public class IfImageFoundAction : ActionBase
         if (template == null)
             return ActionResult.Fail($"Cannot load template: {TemplatePath}");
         
-        // Get screen capture
-        await context.UpdateScreenCaptureAsync(force: ForceFreshCapture);
-        if (context.LastScreenCapture == null)
-            return ActionResult.Fail("Cannot capture screen");
+        // Perform template matching with temporal confirmation
+        var confirmation = new TAuto.Automation.Utilities.DetectionConfirmation(ConsecutiveFrames);
+        TemplateMatchResult? lastMatch = null;
+        bool isConfirmed = false;
         
-        // Perform template matching
-        var result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
+        int maxAttempts = ConsecutiveFrames == 1 ? 1 : ConsecutiveFrames + 5;
+        for (int i = 0; i < maxAttempts; i++)
+        {
+            await context.UpdateScreenCaptureAsync(force: ForceFreshCapture);
+            if (context.LastScreenCapture == null)
+                return ActionResult.Fail("Cannot capture screen");
+            
+            var result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
+            if (result.Found) lastMatch = result;
+            
+            if (confirmation.RecordResult(result.Found))
+            {
+                isConfirmed = true;
+                break;
+            }
+            
+            if (ConsecutiveFrames > 1 && !isConfirmed && i < maxAttempts - 1)
+            {
+                await Task.Delay(100, ct);
+            }
+        }
         
-        if (result.Found)
+        if (isConfirmed && lastMatch != null)
         {
             // Store location if configured
             if (StoreLocation)
             {
-                context.LastFoundImageLocation = result.CenterLocation;
+                context.LastFoundImageLocation = lastMatch.CenterLocation;
             }
             
             // Jump to THEN action

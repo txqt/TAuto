@@ -85,4 +85,9 @@ public class ImageWrapper : IImage
         _disposed = true;
         _image.Dispose();
     }
+
+    public IImage Clone()
+    {
+        return new ImageWrapper(_image.Clone());
+    }
 }
