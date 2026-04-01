@@ -118,10 +118,26 @@ public class ScreenCaptureManager : IDisposable
 
                     var success = await DoCaptureInternalAsync(ct);
 
+                    // AUDIT FIX (CRITICAL-2): Transfer-of-ownership pattern for cloned frames.
+                    // If FrameCaptured handler throws or no subscriber exists, the clone is
+                    // disposed instead of leaked (~8MB per frame at 1080p).
                     if (success && LastScreenCapture != null)
                     {
-                        var frameClone = LastScreenCapture.Clone();
-                        FrameCaptured?.Invoke(this, frameClone);
+                        IImage? frameClone = null;
+                        try
+                        {
+                            frameClone = LastScreenCapture.Clone();
+                            FrameCaptured?.Invoke(this, frameClone);
+                            frameClone = null; // Ownership transferred to subscriber
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[ScreenCaptureManager] FrameCaptured handler error: {ex.Message}");
+                        }
+                        finally
+                        {
+                            frameClone?.Dispose(); // Dispose only if NOT consumed
+                        }
                     }
                 }
             }
@@ -179,9 +195,16 @@ public class ScreenCaptureManager : IDisposable
 
             if (await Task.WhenAny(captureTask, timeoutTask) != captureTask)
             {
-                // Capture timed out. The captureTask is now orphaned — we intentionally
-                // do NOT await it again. The GDI/WGC call will eventually return or be
-                // cleaned up when StopPersistentSession() is called on the next iteration.
+                // AUDIT FIX (CRITICAL-5): Dispose orphaned capture result.
+                // The captureTask is orphaned after timeout, but it will eventually complete
+                // and produce an IImage that nobody consumes. Attach a continuation to
+                // dispose it, preventing ~8MB leak per timeout event.
+                _ = captureTask.ContinueWith(t =>
+                {
+                    if (t.IsCompletedSuccessfully)
+                        t.Result?.Dispose();
+                }, TaskContinuationOptions.OnlyOnRanToCompletion);
+
                 _consecutiveTimeouts++;
                 Debug.WriteLine($"[ScreenCapture] ⚠️ Capture timed out after {CaptureTimeoutMs}ms (consecutive: {_consecutiveTimeouts})");
                 LastScreenCapture = null;

@@ -9,7 +9,8 @@ namespace TAuto.Core.Imaging;
 public class RawImage : IImage
 {
     private const int DefaultDpi = 2835; // ~72 DPI in pixels per meter
-    private readonly byte[] _pixels;
+    private byte[]? _pixels;
+    private bool _disposed;
     
     public int Width { get; }
     public int Height { get; }
@@ -23,34 +24,39 @@ public class RawImage : IImage
 
     public byte[] GetPixelData()
     {
-        return _pixels;
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return _pixels!;
     }
 
     public IImage Clone()
     {
-        var newPixels = new byte[_pixels.Length];
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var newPixels = new byte[_pixels!.Length];
         Buffer.BlockCopy(_pixels, 0, newPixels, 0, _pixels.Length);
         return new RawImage(Width, Height, newPixels);
     }
 
     public void CopyPixelDataTo(byte[] destination)
     {
-        Buffer.BlockCopy(_pixels, 0, destination, 0, Math.Min(_pixels.Length, destination.Length));
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        Buffer.BlockCopy(_pixels!, 0, destination, 0, Math.Min(_pixels!.Length, destination.Length));
     }
 
     public void Save(string filePath)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         using var fs = new FileStream(filePath, FileMode.Create);
         Save(fs, ImageFormat.Bmp);
     }
 
     public void Save(Stream stream, ImageFormat format)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         // Minimal BMP implementation for RawImage
         using var bw = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
         
         // BMP Header
-        int fileSize = 54 + _pixels.Length;
+        int fileSize = 54 + _pixels!.Length;
         bw.Write('B');
         bw.Write('M');
         bw.Write(fileSize);
@@ -80,16 +86,20 @@ public class RawImage : IImage
 
     public Task SaveAsync(Stream stream, ImageFormat format, CancellationToken cancellationToken = default)
     {
-        // Since the current implementation is already efficient with BinaryWriter and memory streams,
-        // and doesn't involve heavy external CPU/IO outside of the stream itself, 
-        // we wrap it in a Task for interface consistency. 
-        // For RawImage, actual async IO happens at the stream level if it's a FileStream wrapper.
+        ObjectDisposedException.ThrowIf(_disposed, this);
         Save(stream, format);
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// AUDIT FIX (CRITICAL-3): Release the LOH byte[] reference immediately.
+    /// RawImage pixels can be 8MB+ at 1080p. A no-op Dispose() keeps these
+    /// pinned in Gen2/LOH, causing fragmentation and eventual OOM after 24h+.
+    /// </summary>
     public void Dispose()
     {
-        // No unmanaged resources
+        if (_disposed) return;
+        _disposed = true;
+        _pixels = null; // Release LOH reference for deterministic GC collection
     }
 }
