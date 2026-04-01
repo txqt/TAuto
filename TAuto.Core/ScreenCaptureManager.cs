@@ -164,6 +164,9 @@ public class ScreenCaptureManager : IDisposable
         return await DoCaptureInternalAsync(CancellationToken.None);
     }
 
+    // AUDIT FIX (P0-2): Enforce capture timeout using Task.WhenAny.
+    // The original code created a CTS but never passed it to CaptureScreenAsync(),
+    // so a hung window ("Not Responding") would block the capture loop forever.
     private async Task<bool> DoCaptureInternalAsync(CancellationToken loopCt)
     {
         try
@@ -171,7 +174,22 @@ public class ScreenCaptureManager : IDisposable
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(loopCt);
             timeoutCts.CancelAfter(CaptureTimeoutMs);
 
-            var capture = await _device.CaptureScreenAsync();
+            var captureTask = _device.CaptureScreenAsync();
+            var timeoutTask = Task.Delay(CaptureTimeoutMs, timeoutCts.Token);
+
+            if (await Task.WhenAny(captureTask, timeoutTask) != captureTask)
+            {
+                // Capture timed out. The captureTask is now orphaned — we intentionally
+                // do NOT await it again. The GDI/WGC call will eventually return or be
+                // cleaned up when StopPersistentSession() is called on the next iteration.
+                _consecutiveTimeouts++;
+                Debug.WriteLine($"[ScreenCapture] ⚠️ Capture timed out after {CaptureTimeoutMs}ms (consecutive: {_consecutiveTimeouts})");
+                LastScreenCapture = null;
+                LastCaptureTime = null;
+                return false;
+            }
+
+            var capture = await captureTask; // Safe: task already completed
             if (capture != null)
             {
                 LastScreenCapture = capture; // Automatically disposes previous

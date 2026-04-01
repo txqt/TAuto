@@ -142,35 +142,38 @@ public class GameHealthMonitor
     /// <summary>
     /// Fast, low-cost hash of an IImage for frozen frame detection.
     /// Samples a grid of pixels rather than hashing the entire image.
+    /// AUDIT FIX (P0-3): Uses ArrayPool to eliminate ~8MB GC allocation per call.
     /// </summary>
     private static uint ComputeSimpleHash(IImage source)
     {
+        int w = source.Width;
+        int h = source.Height;
+        int stride = (w * 4); // Assume 32bpp BGRA
+        int pixelCount = w * h * 4;
+
+        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(pixelCount);
         try
         {
-            int w = source.Width;
-            int h = source.Height;
-            int stride = (w * 4); // Assume 32bpp BGRA
+            source.CopyPixelDataTo(buffer);
 
             // Sample 16 evenly-spaced pixels
             uint hash = 2166136261u; // FNV-1a offset basis
             int stepX = Math.Max(1, w / 4);
             int stepY = Math.Max(1, h / 4);
 
-            byte[] pixels = source.GetPixelData();
-            
             for (int y = stepY; y < h; y += stepY)
             {
                 int rowOffset = y * stride;
                 for (int x = stepX; x < w; x += stepX)
                 {
                     int offset = rowOffset + (x * 4);
-                    if (offset + 2 < pixels.Length)
+                    if (offset + 2 < pixelCount)
                     {
-                        hash ^= pixels[offset];
+                        hash ^= buffer[offset];
                         hash *= 16777619u;
-                        hash ^= pixels[offset + 1];
+                        hash ^= buffer[offset + 1];
                         hash *= 16777619u;
-                        hash ^= pixels[offset + 2];
+                        hash ^= buffer[offset + 2];
                         hash *= 16777619u;
                     }
                 }
@@ -181,6 +184,10 @@ public class GameHealthMonitor
         catch
         {
             return 0;
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 }
