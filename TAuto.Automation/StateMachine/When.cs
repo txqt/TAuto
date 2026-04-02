@@ -21,7 +21,8 @@ public static class When
         => new IfImageFoundAction
         {
             TemplatePath = templatePath,
-            Threshold = threshold
+            Threshold = threshold,
+            ForceFreshCapture = false
         };
 
     /// <summary>
@@ -91,6 +92,7 @@ public static class When
             TemplatePath = templatePath,
             DelayAfterMs = delayAfterMs,
             TimeoutMs = timeoutMs,
-            Threshold = threshold
+            Threshold = threshold,
+            ForceFreshCapture = false
         };
 }

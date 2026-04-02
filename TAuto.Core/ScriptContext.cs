@@ -111,9 +111,27 @@ public class ScriptContext
         remove => _captureManager.FrameCaptured -= value;
     }
 
+    private readonly Dictionary<(string, double), TemplateMatchResult> _visionCache = new();
+
+    public void CacheMatch(string templatePath, double threshold, TemplateMatchResult result)
+    {
+        _visionCache[(templatePath, threshold)] = result;
+    }
+
+    public TemplateMatchResult? GetCachedMatch(string templatePath, double threshold)
+    {
+        if (_visionCache.TryGetValue((templatePath, threshold), out var result))
+            return result;
+        return null;
+    }
+
     public async Task<bool> UpdateScreenCaptureAsync(bool force = false)
     {
         bool result = await _captureManager.UpdateScreenCaptureAsync(force);
+        if (force || result)
+        {
+            _visionCache.Clear();
+        }
         HealthMonitor?.ReportCaptureResult(_captureManager.LastScreenCapture);
         return result;
     }

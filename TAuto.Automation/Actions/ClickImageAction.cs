@@ -120,6 +120,17 @@ public class ClickImageAction : ActionBase
         set => SetProperty(ref _consecutiveFrames, value); 
     }
     
+    private bool _forceFreshCapture = true;
+    /// <summary>
+    /// Whether to force a fresh screen capture for each evaluation.
+    /// Default is true.
+    /// </summary>
+    public bool ForceFreshCapture 
+    { 
+        get => _forceFreshCapture; 
+        set => SetProperty(ref _forceFreshCapture, value); 
+    }
+    
     // ===== Execute =====
     
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
@@ -150,7 +161,7 @@ public class ClickImageAction : ActionBase
                 return ActionResult.Fail("Cancelled");
             
             // Capture screen
-            await context.UpdateScreenCaptureAsync(force: true);
+            await context.UpdateScreenCaptureAsync(force: ForceFreshCapture);
             if (context.LastScreenCapture == null)
                 return ActionResult.Fail("Cannot capture screen");
             

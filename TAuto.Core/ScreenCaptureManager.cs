@@ -165,14 +165,14 @@ public class ScreenCaptureManager : IDisposable
         // Even forced captures respect minimum interval — screen can't change in <50ms
         if (LastCaptureTime.HasValue)
         {
-            var elapsed = (DateTime.Now - LastCaptureTime.Value).TotalMilliseconds;
+            var elapsed = (DateTime.UtcNow - LastCaptureTime.Value).TotalMilliseconds;
             if (elapsed < MinCaptureIntervalMs)
                 return LastScreenCapture != null;
         }
 
         if (!force && LastScreenCapture != null && LastCaptureTime.HasValue)
         {
-            var elapsed = (DateTime.Now - LastCaptureTime.Value).TotalMilliseconds;
+            var elapsed = (DateTime.UtcNow - LastCaptureTime.Value).TotalMilliseconds;
             if (elapsed < CaptureIntervalMs)
                 return true;
         }
@@ -187,13 +187,16 @@ public class ScreenCaptureManager : IDisposable
     {
         try
         {
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(loopCt);
-            timeoutCts.CancelAfter(CaptureTimeoutMs);
-
             var captureTask = _device.CaptureScreenAsync();
-            var timeoutTask = Task.Delay(CaptureTimeoutMs, timeoutCts.Token);
 
-            if (await Task.WhenAny(captureTask, timeoutTask) != captureTask)
+            // optimized timeout enforcement using WaitAsync (.NET 6+)
+            // reduces allocations compared to Task.WhenAny + Task.Delay
+            IImage? capture;
+            try
+            {
+                capture = await captureTask.WaitAsync(TimeSpan.FromMilliseconds(CaptureTimeoutMs), loopCt);
+            }
+            catch (TimeoutException)
             {
                 // AUDIT FIX (CRITICAL-5): Dispose orphaned capture result.
                 // The captureTask is orphaned after timeout, but it will eventually complete
@@ -212,11 +215,10 @@ public class ScreenCaptureManager : IDisposable
                 return false;
             }
 
-            var capture = await captureTask; // Safe: task already completed
             if (capture != null)
             {
                 LastScreenCapture = capture; // Automatically disposes previous
-                LastCaptureTime = DateTime.Now;
+                LastCaptureTime = DateTime.UtcNow;
                 _consecutiveTimeouts = 0;
                 return true;
             }
@@ -226,7 +228,7 @@ public class ScreenCaptureManager : IDisposable
             if (!loopCt.IsCancellationRequested)
             {
                 _consecutiveTimeouts++;
-                Debug.WriteLine($"[ScreenCapture] ⚠️ Capture timed out after {CaptureTimeoutMs}ms (consecutive: {_consecutiveTimeouts})");
+                Debug.WriteLine($"[ScreenCapture] ⚠️ Capture canceled/timeout (consecutive: {_consecutiveTimeouts})");
                 LastScreenCapture = null;
                 LastCaptureTime = null;
             }

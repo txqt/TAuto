@@ -45,6 +45,7 @@ public class StateMachine
     private Dictionary<string, State>? _stateLookup;
     private StateTransition[]? _sortedGlobalTransitions;
     private StateTransition[]? _sortedStateTransitions;
+    private readonly List<StateTransition> _activeGlobalsBuffer = new();
 
     public async Task<ActionResult> RunAsync(ScriptContext context, CancellationToken ct)
     {
@@ -199,14 +200,20 @@ public class StateMachine
                     return ActionResult.Fail($"State '{_currentState.Name}' timed out after {effectiveTimeout}ms.");
                 }
 
-                // Audit FIX-2: Check TimeoutMs and MaxRetries for global transitions inside the loop
-                var activeGlobals = _sortedGlobalTransitions!
-                    .Where(gt => 
-                        (gt.TimeoutMs == 0 || (DateTime.UtcNow - transitionStartTimes[gt]).TotalMilliseconds < gt.TimeoutMs) &&
-                        (gt.MaxRetries == 0 || transitionRetryCounts[gt] < gt.MaxRetries))
-                    .ToArray();
+                // Shared capture — 1 lần cho toàn bộ iteration (Fix Phase 3)
+                await context.UpdateScreenCaptureAsync(force: false);
 
-                var pollGlobalWinner = await evaluator.EvaluateAsync(activeGlobals, context, ct);
+                // Audit FIX-2: Check TimeoutMs and MaxRetries for global transitions inside the loop
+                _activeGlobalsBuffer.Clear();
+                var now = DateTime.UtcNow;
+                foreach (var gt in _sortedGlobalTransitions!)
+                {
+                    if (gt.TimeoutMs > 0 && (now - transitionStartTimes[gt]).TotalMilliseconds >= gt.TimeoutMs) continue;
+                    if (gt.MaxRetries > 0 && transitionRetryCounts[gt] >= gt.MaxRetries) continue;
+                    _activeGlobalsBuffer.Add(gt);
+                }
+
+                var pollGlobalWinner = await evaluator.EvaluateAsync(_activeGlobalsBuffer, context, ct);
 
                 if (pollGlobalWinner != null)
                 {

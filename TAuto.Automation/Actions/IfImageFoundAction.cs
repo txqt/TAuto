@@ -103,7 +103,13 @@ public class IfImageFoundAction : ActionBase
             if (context.LastScreenCapture == null)
                 return ActionResult.Fail("Cannot capture screen");
             
-            var result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
+            // Vision Cache (Fix Phase 4): Reuse results for the same frame
+            var result = context.GetCachedMatch(TemplatePath, Threshold);
+            if (result == null)
+            {
+                result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
+                context.CacheMatch(TemplatePath, Threshold, result);
+            }
             if (result.Found) lastMatch = result;
             
             if (confirmation.RecordResult(result.Found))

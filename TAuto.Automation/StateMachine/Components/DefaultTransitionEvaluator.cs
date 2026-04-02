@@ -17,9 +17,17 @@ public class DefaultTransitionEvaluator : ITransitionEvaluator
 
     public async Task<StateTransition?> EvaluateAsync(IEnumerable<StateTransition> transitions, ScriptContext context, CancellationToken ct)
     {
+        var now = DateTime.UtcNow;
         foreach (var gt in transitions)
         {
             if (ct.IsCancellationRequested) return null;
+
+            // Cooldown guard — skip condition evaluation if on cooldown
+            if (gt.CooldownMs > 0 && gt.LastFiredUtc != DateTime.MinValue &&
+                (now - gt.LastFiredUtc).TotalMilliseconds < gt.CooldownMs)
+            {
+                continue;
+            }
 
             try
             {
