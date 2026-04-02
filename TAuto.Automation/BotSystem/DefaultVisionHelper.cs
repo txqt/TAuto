@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TAuto.Core;
+using TAuto.Core.Imaging;
 
 namespace TAuto.Automation.BotSystem;
 
@@ -133,5 +134,16 @@ public class DefaultVisionHelper : IVisionHelper
             await Delay(500);
         }
         return false;
+    }
+
+    public TemplateMatchResult[] FindTemplates(IImage source,
+        (IImage Template, string? Path, double Threshold)[] templates,
+        Rectangle? roi = null,
+        Rectangle[]? regions = null,
+        bool fallbackFullscreen = false,
+        bool disableMultiScale = false)
+    {
+        CheckCancelled();
+        return Context.Vision.FindTemplates(source, templates, roi, regions, fallbackFullscreen, disableMultiScale);
     }
 }

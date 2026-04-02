@@ -1,4 +1,4 @@
-﻿using TAuto.Core.Imaging;
+using TAuto.Core.Imaging;
 
 namespace TAuto.Core;
 
@@ -10,7 +10,17 @@ public interface ITemplateMatcher
     /// <summary>
     /// Find template image within source using template matching
     /// </summary>
-    TemplateMatchResult FindTemplate(IImage source, IImage template, double threshold, string? templatePath = null);
+    TemplateMatchResult FindTemplate(IImage source, IImage template, double threshold, string? templatePath = null, System.Drawing.Rectangle? roi = null, bool disableMultiScale = false);
+
+    /// <summary>
+    /// Find multiple templates against the same source frame with optional ROIs and fallback.
+    /// </summary>
+    TemplateMatchResult[] FindTemplates(IImage source, 
+        (IImage Template, string? Path, double Threshold)[] templates, 
+        System.Drawing.Rectangle? roi = null, 
+        System.Drawing.Rectangle[]? regions = null, 
+        bool fallbackFullscreen = false,
+        bool disableMultiScale = false);
 }
 
 /// <summary>

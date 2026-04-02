@@ -306,14 +306,15 @@ public class StateMachineBuilder
     /// Add a global transition (checked in ALL states, highest priority interrupts).
     /// </summary>
     public StateMachineBuilder GlobalTransition(string targetState, IAction condition,
-        int priority = 100, params IAction[] onTransitionActions)
+        int priority = 100, int cooldownMs = 2000, params IAction[] onTransitionActions)
     {
         var gt = new StateTransition
         {
             ToState = targetState,
             Condition = condition,
             Priority = priority,
-            TransitionType = TransitionType.Polling
+            TransitionType = TransitionType.Polling,
+            CooldownMs = cooldownMs
         };
         gt.OnTransitionActions.AddRange(onTransitionActions);
         _globalTransitions.Add(gt);
