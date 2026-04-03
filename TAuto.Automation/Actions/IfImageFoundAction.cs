@@ -75,6 +75,13 @@ public class IfImageFoundAction : ActionBase
         set => SetProperty(ref _consecutiveFrames, value); 
     }
     
+    private bool _disableMultiScale = false;
+    public bool DisableMultiScale 
+    { 
+        get => _disableMultiScale; 
+        set => SetProperty(ref _disableMultiScale, value); 
+    }
+    
     // ===== Execute =====
     
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
@@ -107,7 +114,7 @@ public class IfImageFoundAction : ActionBase
             var result = context.GetCachedMatch(TemplatePath, Threshold);
             if (result == null)
             {
-                result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
+                result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath, disableMultiScale: DisableMultiScale);
                 context.CacheMatch(TemplatePath, Threshold, result);
             }
             if (result.Found) lastMatch = result;

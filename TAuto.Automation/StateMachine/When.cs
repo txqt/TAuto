@@ -14,15 +14,13 @@ public static class When
     /// </summary>
     public static IAction? Always => null;
 
-    /// <summary>
-    /// True when the specified image template is found on screen.
-    /// </summary>
-    public static IAction ImageFound(string templatePath, double threshold = 0.8)
+    public static IAction ImageFound(string templatePath, double threshold = 0.8, bool multiScale = false)
         => new IfImageFoundAction
         {
             TemplatePath = templatePath,
             Threshold = threshold,
-            ForceFreshCapture = false
+            ForceFreshCapture = false,
+            DisableMultiScale = !multiScale
         };
 
     /// <summary>
