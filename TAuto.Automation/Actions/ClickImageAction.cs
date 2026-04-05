@@ -130,6 +130,17 @@ public class ClickImageAction : ActionBase
         get => _forceFreshCapture; 
         set => SetProperty(ref _forceFreshCapture, value); 
     }
+
+    private bool _disableMultiScale = true;
+    /// <summary>
+    /// Whether to disable multi-scale matching (searching at 70%-130% scale).
+    /// Default is true for performance.
+    /// </summary>
+    public bool DisableMultiScale
+    {
+        get => _disableMultiScale;
+        set => SetProperty(ref _disableMultiScale, value);
+    }
     
     // ===== Execute =====
     
@@ -165,8 +176,17 @@ public class ClickImageAction : ActionBase
             if (context.LastScreenCapture == null)
                 return ActionResult.Fail("Cannot capture screen");
             
-            // Try to find image
-            var result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
+            // ✅ Try to get result from vision cache (shared across multiple actions in the same frame)
+            var result = context.GetCachedMatch(TemplatePath, Threshold);
+
+            if (result == null)
+            {
+                // Not in cache, perform template matching
+                result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath, disableMultiScale: DisableMultiScale);
+                
+                // Store in cache for subsequent actions or global transitions in this frame
+                context.CacheMatch(TemplatePath, Threshold, result);
+            }
             
             if (result.Found)
             {

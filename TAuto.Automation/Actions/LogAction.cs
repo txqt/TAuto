@@ -1,7 +1,7 @@
-﻿using System;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using TAuto.Automation.Models;
 using TAuto.Core;
 
 namespace TAuto.Automation.Actions;
@@ -9,36 +9,32 @@ namespace TAuto.Automation.Actions;
 /// <summary>
 /// Logs a message to the script console.
 /// </summary>
+[ActionMetadata("Log", "Flow", "L")]
 public class LogAction : ActionBase
 {
-    // Id and IsBreakpoint are in ActionBase
-    public override string DisplayName => $"ðŸ“ Log: {Message}";
-    
-    public string Message { get; set; } = "";
+    public override string DisplayName => $"Log: {Message}";
+
+    [ActionParameter("Message", "Message to write to the execution log.")]
+    public string Message { get; set; } = string.Empty;
 
     public override Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
     {
-        // Interpolate variables: "Hello {Name}" -> "Hello World"
-        string processedMessage = ReplaceVariables(Message, context);
-        
-        // Log to context logger if available
+        var processedMessage = ReplaceVariables(Message, context);
         context.Logger?.Info(processedMessage);
-        
         return Task.FromResult(ActionResult.Ok(processedMessage));
     }
-    
-    private string ReplaceVariables(string input, ScriptContext context)
+
+    private static string ReplaceVariables(string input, ScriptContext context)
     {
-        if (string.IsNullOrEmpty(input)) return "";
-        
+        if (string.IsNullOrEmpty(input))
+        {
+            return string.Empty;
+        }
+
         return Regex.Replace(input, @"\{(.+?)\}", match =>
         {
-            string varName = match.Groups[1].Value;
-            if (context.HasVariable(varName))
-            {
-                return context.GetString(varName);
-            }
-            return match.Value; // Keep original if not found
+            var variableName = match.Groups[1].Value;
+            return context.HasVariable(variableName) ? context.GetString(variableName) : match.Value;
         });
     }
 }

@@ -1,86 +1,69 @@
-﻿using TAuto.Core;
-using System;
 using System.Threading;
 using System.Threading.Tasks;
+using TAuto.Automation.Models;
+using TAuto.Core;
 using TAuto.Core.Imaging;
 
 namespace TAuto.Automation.Actions;
 
 /// <summary>
-/// Action that finds an image template on the screen.
-/// Stores the found location in ScriptContext.LastFoundImageLocation.
-/// Does NOT click - use ClickImageAction for find + click.
+/// Action that finds an image template on the screen and stores the last found location.
 /// </summary>
+[ActionMetadata("Find Image", "Vision", "F")]
 public class FindImageAction : ActionBase
 {
-    // Id and IsBreakpoint are in ActionBase
     public override string DisplayName => !string.IsNullOrEmpty(Name)
-        ? $"🔍 {Name}"
-        : $"🔍 Find Image ({Threshold:P0})";
-    
-    // ===== Configuration =====
-    
-    /// <summary>
-    /// Optional custom name for this action.
-    /// </summary>
+        ? $"Find {Name}"
+        : $"Find Image ({Threshold:P0})";
+
+    [ActionParameter("Name", "Optional friendly name shown in the editor.")]
     public string Name { get; set; } = string.Empty;
-    
-    /// <summary>
-    /// Path to the template image file.
-    /// </summary>
+
+    [ActionParameter("Template Path", "Path to the PNG template used for image matching.")]
     public string TemplatePath { get; set; } = string.Empty;
-    
-    /// <summary>
-    /// Matching threshold (0.0 - 1.0). Higher = stricter.
-    /// </summary>
+
+    [ActionParameter("Threshold", "Image match confidence threshold between 0.0 and 1.0.")]
     public double Threshold { get; set; } = 0.8;
-    
-    /// <summary>
-    /// Whether to force a fresh screen capture.
-    /// </summary>
+
+    [ActionParameter("Fresh Capture", "Capture the latest frame before matching.", IsAdvanced = true)]
     public bool ForceFreshCapture { get; set; } = true;
-    
-    /// <summary>
-    /// Variable name to store "found" (true/false) result.
-    /// If empty, result is not stored in variables.
-    /// </summary>
+
+    [ActionParameter("Result Variable", "Optional variable name to store whether the image was found.", IsAdvanced = true)]
     public string ResultVariableName { get; set; } = string.Empty;
-    
-    // ===== Execute =====
-    
+
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
     {
         if (ct.IsCancellationRequested)
+        {
             return ActionResult.Fail("Cancelled");
-        
+        }
+
         if (string.IsNullOrEmpty(TemplatePath))
+        {
             return ActionResult.Fail("Template path not set");
-        
-        // Load template
+        }
+
         string? baseDir = context.GetString("BaseDirectory");
         IImage? template = context.Vision.LoadTemplate(TemplatePath, baseDir);
         if (template == null)
+        {
             return ActionResult.Fail($"Cannot load template: {TemplatePath}");
-        
-        // Get screen capture
+        }
+
         await context.UpdateScreenCaptureAsync(force: ForceFreshCapture);
         if (context.LastScreenCapture == null)
+        {
             return ActionResult.Fail("Cannot capture screen");
-        
-        // Perform template matching
+        }
+
         var result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
-        
-        // Store result in context
         context.LastFoundImageLocation = result.Found ? result.CenterLocation : null;
-        
-        // Store in variable if configured
+
         if (!string.IsNullOrEmpty(ResultVariableName))
         {
             context.SetVariable(ResultVariableName, result.Found);
         }
-        
-        return result.Found
-            ? ActionResult.Ok(result.CenterLocation)
-            : ActionResult.Ok(); // Not finding is not an error, just no location stored
+
+        return result.Found ? ActionResult.Ok(result.CenterLocation) : ActionResult.Ok();
     }
 }
