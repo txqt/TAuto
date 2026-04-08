@@ -27,7 +27,7 @@ public class IfImageFoundAction : ActionBase
 
     private string _templatePath = string.Empty;
 
-    [ActionParameter("Template Path", "Path to the PNG template used for image matching.")]
+    [ActionParameter("Template Path", "Path to the PNG template used for image matching.", EditorType = ActionParameterEditorType.ImagePath)]
     public string TemplatePath
     {
         get => _templatePath;
@@ -45,7 +45,7 @@ public class IfImageFoundAction : ActionBase
 
     private string _thenActionId = string.Empty;
 
-    [ActionParameter("Then Action Id", "Action id to jump to when the image is found.", IsAdvanced = true)]
+    [ActionParameter("Then Action", "Action to jump to when the image is found.", EditorType = ActionParameterEditorType.ActionId)]
     public string ThenActionId
     {
         get => _thenActionId;
@@ -54,7 +54,7 @@ public class IfImageFoundAction : ActionBase
 
     private string _elseActionId = string.Empty;
 
-    [ActionParameter("Else Action Id", "Action id to jump to when the image is not found.", IsAdvanced = true)]
+    [ActionParameter("Else Action", "Action to jump to when the image is not found.", EditorType = ActionParameterEditorType.ActionId)]
     public string ElseActionId
     {
         get => _elseActionId;

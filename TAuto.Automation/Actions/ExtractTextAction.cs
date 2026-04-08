@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using TAuto.Core;
+using TAuto.Automation.Models;
 using TAuto.Core.Models;
 using TAuto.Core.Imaging;
 using SixLabors.ImageSharp;
@@ -19,19 +20,28 @@ public class ExtractTextAction : ActionBase
 
     // Region to extract from: X, Y, Width, Height
     // If 0, uses full screen (not recommended usually)
+    [ActionParameter("X", "Region X coordinate.", EditorType = ActionParameterEditorType.Region)]
     public int X { get; set; }
+    
+    [ActionParameter("Y", "Region Y coordinate.")]
     public int Y { get; set; }
+    
+    [ActionParameter("Width", "Region width.")]
     public int Width { get; set; }
+    
+    [ActionParameter("Height", "Region height.")]
     public int Height { get; set; }
 
     /// <summary>
     /// Variable name to store the extracted text.
     /// </summary>
+    [ActionParameter("Output Variable", "Variable name to store the extracted text.", EditorType = ActionParameterEditorType.Choice)]
     public string OutputVariable { get; set; } = "ExtractedText";
 
     /// <summary>
     /// Language for OCR (default "eng").
     /// </summary>
+    [ActionParameter("Language", "Language for OCR (e.g. 'eng', 'chi_sim').")]
     public string Language { get; set; } = "eng";
 
     /// <summary>

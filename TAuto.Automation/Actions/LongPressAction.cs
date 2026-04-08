@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using TAuto.Core;
+using TAuto.Automation.Models;
 
 namespace TAuto.Automation.Actions;
 
@@ -14,6 +15,8 @@ public class LongPressAction : ActionBase
             : $"Long Press ({X}, {Y})";
 
     private string _name = string.Empty;
+
+    [ActionParameter("Name", "Optional friendly name shown in the editor.")]
     public string Name
     {
         get => _name;
@@ -21,6 +24,7 @@ public class LongPressAction : ActionBase
     }
 
     private int _x;
+    [ActionParameter("X", "X coordinate in pixels.", EditorType = ActionParameterEditorType.CoordinateX)]
     public int X
     {
         get => _x;
@@ -28,6 +32,7 @@ public class LongPressAction : ActionBase
     }
 
     private int _y;
+    [ActionParameter("Y", "Y coordinate in pixels.", EditorType = ActionParameterEditorType.CoordinateY)]
     public int Y
     {
         get => _y;
@@ -35,6 +40,7 @@ public class LongPressAction : ActionBase
     }
 
     private double _xPercent;
+    [ActionParameter("X (%)", "X coordinate as a percentage.", IsAdvanced = true)]
     public double XPercent
     {
         get => _xPercent;
@@ -42,6 +48,7 @@ public class LongPressAction : ActionBase
     }
 
     private double _yPercent;
+    [ActionParameter("Y (%)", "Y coordinate as a percentage.", IsAdvanced = true)]
     public double YPercent
     {
         get => _yPercent;
@@ -49,6 +56,7 @@ public class LongPressAction : ActionBase
     }
 
     private bool _usePercent;
+    [ActionParameter("Use Percent", "Use percentage-based coordinates instead of pixels.", Group = "Coordinate Mode")]
     public bool UsePercent
     {
         get => _usePercent;
@@ -56,6 +64,7 @@ public class LongPressAction : ActionBase
     }
 
     private int _durationMs = 500;
+    [ActionParameter("Duration (ms)", "Long press duration in milliseconds.")]
     public int DurationMs
     {
         get => _durationMs;

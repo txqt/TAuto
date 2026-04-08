@@ -92,7 +92,8 @@ public class ActionMetadataService
                 DisplayName = x.Metadata!.DisplayName,
                 Description = x.Metadata.Description,
                 Group = x.Metadata.Group,
-                IsAdvanced = x.Metadata.IsAdvanced
+                IsAdvanced = x.Metadata.IsAdvanced,
+                EditorType = x.Metadata.EditorType
             })
             .ToList();
     }
@@ -118,4 +119,5 @@ public class ActionParameterDefinition
     public string Description { get; set; } = string.Empty;
     public string Group { get; set; } = string.Empty;
     public bool IsAdvanced { get; set; }
+    public ActionParameterEditorType EditorType { get; set; } = ActionParameterEditorType.Default;
 }

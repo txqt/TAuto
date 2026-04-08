@@ -28,7 +28,7 @@ public class WaitForImageAction : ActionBase
 
     private string _templatePath = string.Empty;
 
-    [ActionParameter("Template Path", "Path to the PNG template used for image matching.")]
+    [ActionParameter("Template Path", "Path to the PNG template used for image matching.", EditorType = ActionParameterEditorType.ImagePath)]
     public string TemplatePath
     {
         get => _templatePath;

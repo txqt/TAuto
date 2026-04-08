@@ -1,4 +1,5 @@
 using TAuto.Core;
+using TAuto.Automation.Models;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,12 +16,9 @@ public class ClickImageAction : ActionBase
     // Id and IsBreakpoint are in ActionBase
     public override string DisplayName => $"👆 Click {Name}";
     
-    // ===== Configuration =====
-    
     private string _name = string.Empty;
-    /// <summary>
-    /// Optional custom name for this action.
-    /// </summary>
+    
+    [ActionParameter("Name", "Optional custom name for this action.")]
     public string Name 
     { 
         get => _name; 
@@ -28,9 +26,7 @@ public class ClickImageAction : ActionBase
     }
     
     private string _templatePath = string.Empty;
-    /// <summary>
-    /// Path to the template image file.
-    /// </summary>
+    [ActionParameter("Template Path", "Path to the template image file.", EditorType = ActionParameterEditorType.ImagePath)]
     public string TemplatePath 
     { 
         get => _templatePath; 
@@ -38,9 +34,7 @@ public class ClickImageAction : ActionBase
     }
     
     private double _threshold = 0.8;
-    /// <summary>
-    /// Matching threshold (0.0 - 1.0). Higher = stricter.
-    /// </summary>
+    [ActionParameter("Threshold", "Matching threshold (0.0 - 1.0). Higher = stricter.")]
     public double Threshold 
     { 
         get => _threshold; 
@@ -48,9 +42,7 @@ public class ClickImageAction : ActionBase
     }
     
     private int _offsetX = 0;
-    /// <summary>
-    /// Click offset X from center of found image.
-    /// </summary>
+    [ActionParameter("Offset X", "Click offset X from center of found image.")]
     public int OffsetX 
     { 
         get => _offsetX; 
@@ -58,9 +50,7 @@ public class ClickImageAction : ActionBase
     }
     
     private int _offsetY = 0;
-    /// <summary>
-    /// Click offset Y from center of found image.
-    /// </summary>
+    [ActionParameter("Offset Y", "Click offset Y from center of found image.")]
     public int OffsetY 
     { 
         get => _offsetY; 
@@ -68,9 +58,7 @@ public class ClickImageAction : ActionBase
     }
     
     private int _randomOffset = 3;
-    /// <summary>
-    /// Random offset range in pixels for anti-detection.
-    /// </summary>
+    [ActionParameter("Random Offset", "Random offset range in pixels for anti-detection.")]
     public int RandomOffset 
     { 
         get => _randomOffset; 
@@ -78,10 +66,7 @@ public class ClickImageAction : ActionBase
     }
     
     private int _timeoutMs = 0;
-    /// <summary>
-    /// Timeout in milliseconds to wait for image to appear.
-    /// 0 = no wait, check once.
-    /// </summary>
+    [ActionParameter("Timeout (ms)", "Timeout in ms to wait for image. 0 = check once.")]
     public int TimeoutMs 
     { 
         get => _timeoutMs; 
@@ -89,9 +74,7 @@ public class ClickImageAction : ActionBase
     }
     
     private int _retryInterval = 500;
-    /// <summary>
-    /// Retry interval in milliseconds when waiting for image.
-    /// </summary>
+    [ActionParameter("Retry Interval", "Retry interval in ms when waiting.")]
     public int RetryInterval 
     { 
         get => _retryInterval; 
@@ -99,10 +82,7 @@ public class ClickImageAction : ActionBase
     }
 
     private int _delayAfterMs = 500;
-    /// <summary>
-    /// Delay in milliseconds to wait AFTER a successful click.
-    /// Useful for letting UI animations finish.
-    /// </summary>
+    [ActionParameter("Delay After", "Delay in ms to wait AFTER a successful click.")]
     public int DelayAfterMs 
     { 
         get => _delayAfterMs; 
@@ -110,10 +90,7 @@ public class ClickImageAction : ActionBase
     }
     
     private int _consecutiveFrames = 1;
-    /// <summary>
-    /// Number of consecutive frames the image must be detected before acting.
-    /// Prevents false positives from single-frame noise. Default 1.
-    /// </summary>
+    [ActionParameter("Consecutive Frames", "Frames to confirm detection.")]
     public int ConsecutiveFrames 
     { 
         get => _consecutiveFrames; 

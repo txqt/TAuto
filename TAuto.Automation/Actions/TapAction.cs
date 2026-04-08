@@ -29,7 +29,7 @@ public class TapAction : ActionBase
 
     private int _x;
 
-    [ActionParameter("X", "Absolute X coordinate in pixels.")]
+    [ActionParameter("X", "Absolute X coordinate in pixels.", EditorType = ActionParameterEditorType.CoordinateX)]
     public int X
     {
         get => _x;
@@ -38,7 +38,7 @@ public class TapAction : ActionBase
 
     private int _y;
 
-    [ActionParameter("Y", "Absolute Y coordinate in pixels.")]
+    [ActionParameter("Y", "Absolute Y coordinate in pixels.", EditorType = ActionParameterEditorType.CoordinateY)]
     public int Y
     {
         get => _y;

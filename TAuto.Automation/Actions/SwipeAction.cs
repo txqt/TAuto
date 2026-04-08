@@ -29,7 +29,7 @@ public class SwipeAction : ActionBase
 
     private int _startX;
 
-    [ActionParameter("Start X", "Swipe start X coordinate in pixels.")]
+    [ActionParameter("Start X", "Swipe start X coordinate in pixels.", EditorType = ActionParameterEditorType.CoordinateX)]
     public int StartX
     {
         get => _startX;
@@ -38,7 +38,7 @@ public class SwipeAction : ActionBase
 
     private int _startY;
 
-    [ActionParameter("Start Y", "Swipe start Y coordinate in pixels.")]
+    [ActionParameter("Start Y", "Swipe start Y coordinate in pixels.", EditorType = ActionParameterEditorType.CoordinateY)]
     public int StartY
     {
         get => _startY;
@@ -47,7 +47,7 @@ public class SwipeAction : ActionBase
 
     private int _endX;
 
-    [ActionParameter("End X", "Swipe end X coordinate in pixels.")]
+    [ActionParameter("End X", "Swipe end X coordinate in pixels.", EditorType = ActionParameterEditorType.CoordinateX)]
     public int EndX
     {
         get => _endX;
@@ -56,7 +56,7 @@ public class SwipeAction : ActionBase
 
     private int _endY;
 
-    [ActionParameter("End Y", "Swipe end Y coordinate in pixels.")]
+    [ActionParameter("End Y", "Swipe end Y coordinate in pixels.", EditorType = ActionParameterEditorType.CoordinateY)]
     public int EndY
     {
         get => _endY;

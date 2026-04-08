@@ -19,7 +19,7 @@ public class FindImageAction : ActionBase
     [ActionParameter("Name", "Optional friendly name shown in the editor.")]
     public string Name { get; set; } = string.Empty;
 
-    [ActionParameter("Template Path", "Path to the PNG template used for image matching.")]
+    [ActionParameter("Template Path", "Path to the PNG template used for image matching.", EditorType = ActionParameterEditorType.ImagePath)]
     public string TemplatePath { get; set; } = string.Empty;
 
     [ActionParameter("Threshold", "Image match confidence threshold between 0.0 and 1.0.")]
