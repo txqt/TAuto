@@ -33,10 +33,15 @@ public enum ActionParameterEditorType
     CoordinateY,
     
     /// <summary>
+    /// Visual picker for a coordinate pair (X, Y).
+    /// </summary>
+    CoordinateXY,
+
+    /// <summary>
     /// Visual box picker for a rectangular region (X, Y, W, H).
     /// </summary>
     Region,
-    
+
     /// <summary>
     /// Dropdown list for a fixed set of choices.
     /// </summary>

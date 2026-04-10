@@ -14,6 +14,7 @@ namespace TAuto.Automation.Actions;
 /// <summary>
 /// Extract text from a specific region of the screen using OCR.
 /// </summary>
+[ActionMetadata("Extract Text", "Vision & OCR", "🔍", IsAdvanced = true)]
 public class ExtractTextAction : ActionBase
 {
     public override string DisplayName => $"🔍 Extract Text to ${OutputVariable}";

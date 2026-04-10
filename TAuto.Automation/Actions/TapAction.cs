@@ -9,7 +9,7 @@ namespace TAuto.Automation.Actions;
 /// <summary>
 /// Action that taps at a specific screen location.
 /// </summary>
-[ActionMetadata("Tap", "Input", "T")]
+[ActionMetadata("Tap", "Input & Gesture", "T")]
 public class TapAction : ActionBase
 {
     public override string DisplayName => !string.IsNullOrEmpty(Name)

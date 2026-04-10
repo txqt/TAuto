@@ -1,4 +1,5 @@
 using TAuto.Core;
+using TAuto.Automation.Models;
 using System;
 using System.Linq;
 using System.Threading;
@@ -9,21 +10,32 @@ namespace TAuto.Automation.Actions;
 /// <summary>
 /// Action that finds text on the screen and clicks it.
 /// </summary>
+[ActionMetadata("Click Text", "Vision & OCR", "🔤")]
 public class ClickTextAction : ActionBase
 {
     // Id and IsBreakpoint are in ActionBase
     public override string DisplayName => !string.IsNullOrEmpty(Name)
-        ? $"ðŸ–±ï¸ Text: {Name}"
-        : $"ðŸ–±ï¸ Click Text: \"{TargetText}\"";
+        ? $"🖱️ Text: {Name}"
+        : $"🖱️ Click Text: \"{TargetText}\"";
     
     // ===== Configuration =====
     
+    [ActionParameter("Name", "Friendly name for this action.")]
     public string Name { get; set; } = string.Empty;
+
+    [ActionParameter("Target Text", "The text to find and click on screen.")]
     public string TargetText { get; set; } = string.Empty;
+
+    [ActionParameter("Case Sensitive", "Whether to match upper/lower case strictly.", IsAdvanced = true)]
     public bool CaseSensitive { get; set; } = false;
+
+    [ActionParameter("Partial Match", "Allow matching of sub-strings.", IsAdvanced = true)]
     public bool PartialMatch { get; set; } = true;
-    
+
+    [ActionParameter("Offset X", "Horizontal click offset.", IsAdvanced = true)]
     public int OffsetX { get; set; } = 0;
+
+    [ActionParameter("Offset Y", "Vertical click offset.", IsAdvanced = true)]
     public int OffsetY { get; set; } = 0;
     
     private int _consecutiveFrames = 1;

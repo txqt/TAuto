@@ -43,6 +43,7 @@ public class ActionMetadataService
                     Icon = metadata.Icon,
                     Description = metadata.Description,
                     SafetyLevel = metadata.SafetyLevel,
+                    IsAdvanced = metadata.IsAdvanced,
                     Parameters = ExtractParameters(implementation)
                 };
 
@@ -108,6 +109,7 @@ public class ActionDefinition
     public string Icon { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public ActionSafetyLevel SafetyLevel { get; set; } = ActionSafetyLevel.Safe;
+    public bool IsAdvanced { get; set; }
     public List<ActionParameterDefinition> Parameters { get; set; } = new();
 }
 

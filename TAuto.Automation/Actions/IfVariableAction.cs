@@ -1,14 +1,12 @@
-﻿using TAuto.Core;
-using System;
-using System.Threading;
-using System.Threading.Tasks;
+using TAuto.Automation.Models;
+using TAuto.Core;
 
 namespace TAuto.Automation.Actions;
 
 /// <summary>
 /// Conditional action that checks a variable value and branches accordingly.
-/// Supports numeric comparisons and boolean checks.
 /// </summary>
+[ActionMetadata("If Variable", "Flow & Logic", "❓")]
 public class IfVariableAction : ActionBase
 {
     // Id and IsBreakpoint are in ActionBase
@@ -16,32 +14,19 @@ public class IfVariableAction : ActionBase
     
     // ===== Configuration =====
     
-    /// <summary>
-    /// Name of the variable to check.
-    /// </summary>
+    [ActionParameter("Variable", "Name of the variable to check.", EditorType = ActionParameterEditorType.Choice)]
     public string VariableName { get; set; } = string.Empty;
     
-    /// <summary>
-    /// Comparison operator: ==, !=, >, <, >=, <=
-    /// </summary>
+    [ActionParameter("Operator", "Comparison operator (==, !=, >, <, >=, <=).")]
     public string Operator { get; set; } = "==";
     
-    /// <summary>
-    /// Value to compare against.
-    /// Will be converted to match the variable type.
-    /// </summary>
+    [ActionParameter("Value", "Value to compare against.")]
     public string CompareValue { get; set; } = string.Empty;
     
-    /// <summary>
-    /// Action ID to jump to if condition is TRUE.
-    /// If empty, continues to next action.
-    /// </summary>
+    [ActionParameter("Then Action", "Action to jump to if condition is TRUE.", EditorType = ActionParameterEditorType.ActionId)]
     public string ThenActionId { get; set; } = string.Empty;
-    
-    /// <summary>
-    /// Action ID to jump to if condition is FALSE.
-    /// If empty, continues to next action.
-    /// </summary>
+
+    [ActionParameter("Else Action", "Action to jump to if condition is FALSE.", EditorType = ActionParameterEditorType.ActionId)]
     public string ElseActionId { get; set; } = string.Empty;
     
     // ===== Execute =====

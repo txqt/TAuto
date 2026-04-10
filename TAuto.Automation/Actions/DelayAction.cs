@@ -9,7 +9,7 @@ namespace TAuto.Automation.Actions;
 /// <summary>
 /// Action that waits for a specified duration.
 /// </summary>
-[ActionMetadata("Delay", "Flow", "T")]
+[ActionMetadata("Delay", "Flow & Logic", "⌛")]
 public class DelayAction : ActionBase
 {
     public override string DisplayName => $"Delay {DelayMs}ms";

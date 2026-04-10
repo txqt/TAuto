@@ -1,26 +1,18 @@
-using TAuto.Core;
 using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TAuto.Core.Imaging;
+using TAuto.Automation.Models;
+using TAuto.Core;
 
 namespace TAuto.Automation.Actions;
 
 /// <summary>
 /// AUDIT FIX (P0-5): Full game restart recovery action.
-/// Recovery flow:
-///   1. Kill process (by ProcessName)
-///   2. Wait (CooldownMs)
-///   3. Relaunch application (ExePath + LaunchArgs)
-///   4. Wait for window handle (by WindowTitle, with WindowReadyTimeoutMs)
-///   5. Wait for expected UI state (optional ReadyTemplatePath template match)
-///   6. Update ScriptContext.Device.TargetId → resume normal state machine flow
-///
-/// Configuration is read from action properties first, then from ScriptContext variables
-/// (allowing centralized configuration via BotBase.Arguments or WorkerStartupArgs).
 /// </summary>
+[ActionMetadata("Restart Game", "System", "🔄", IsAdvanced = true)]
 public class RestartGameAction : ActionBase
 {
     public override string DisplayName => !string.IsNullOrEmpty(Name)
@@ -30,28 +22,23 @@ public class RestartGameAction : ActionBase
     // ===== Configuration =====
 
     private string _name = string.Empty;
+    [ActionParameter("Name", "Friendly name for this action.")]
     public string Name
     {
         get => _name;
         set => SetProperty(ref _name, value);
     }
 
-    /// <summary>
-    /// Process name to kill (without .exe extension). Example: "game"
-    /// Falls back to context variable "AppConfig.ProcessName" if empty.
-    /// </summary>
     private string _processName = string.Empty;
+    [ActionParameter("Process Name", "Process name to kill (e.g., game).")]
     public string ProcessName
     {
         get => _processName;
         set => SetProperty(ref _processName, value);
     }
 
-    /// <summary>
-    /// Full path to executable for relaunch.
-    /// Falls back to context variable "AppConfig.ExePath" if empty.
-    /// </summary>
     private string _exePath = string.Empty;
+    [ActionParameter("Exe Path", "Full path to executable for relaunch.")]
     public string ExePath
     {
         get => _exePath;

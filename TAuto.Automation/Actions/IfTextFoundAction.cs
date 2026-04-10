@@ -1,43 +1,42 @@
+using TAuto.Automation.Models;
 using TAuto.Core;
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace TAuto.Automation.Actions;
 
 /// <summary>
 /// Conditional action that checks if text exists on screen using OCR.
 /// </summary>
+[ActionMetadata("If Text Found", "Vision & OCR", "❓", IsAdvanced = true)]
 public class IfTextFoundAction : ActionBase
 {
     // Id and IsBreakpoint are in ActionBase
-    public override string DisplayName => $"â“ If Text Found '{TargetText}'";
+    public override string DisplayName => $"❓ If Text Found '{TargetText}'";
     
     // ===== Configuration =====
     
+    [ActionParameter("Name", "Friendly name for this action.")]
     public string Name { get; set; } = string.Empty;
     
-    /// <summary>
-    /// Text to search for.
-    /// </summary>
+    [ActionParameter("Target Text", "The text to search for on screen.")]
     public string TargetText { get; set; } = string.Empty;
     
-    /// <summary>
-    /// If true, matches case. If false, ignores case.
-    /// </summary>
+    [ActionParameter("Case Sensitive", "Match upper/lower case strictly.", IsAdvanced = true)]
     public bool CaseSensitive { get; set; } = false;
     
-    /// <summary>
-    /// If true, looks for partial match (Contains). If false, exact match (Equals).
-    /// </summary>
+    [ActionParameter("Partial Match", "Allow matching of sub-strings.", IsAdvanced = true)]
     public bool PartialMatch { get; set; } = true;
     
+    [ActionParameter("Then Action", "Action to jump to if text is found.", EditorType = ActionParameterEditorType.ActionId)]
     public string ThenActionId { get; set; } = string.Empty;
+
+    [ActionParameter("Else Action", "Action to jump to if text is NOT found.", EditorType = ActionParameterEditorType.ActionId)]
     public string ElseActionId { get; set; } = string.Empty;
     
+    [ActionParameter("Fresh Capture", "Force a new screen capture before checking.", IsAdvanced = true)]
     public bool ForceFreshCapture { get; set; } = true;
     
     private int _consecutiveFrames = 1;
+    [ActionParameter("Consecutive Frames", "Wait for the text to appear for N frames.", IsAdvanced = true)]
     public int ConsecutiveFrames 
     { 
         get => _consecutiveFrames; 

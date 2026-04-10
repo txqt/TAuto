@@ -1,4 +1,5 @@
 using TAuto.Core;
+using TAuto.Automation.Models;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +15,7 @@ namespace TAuto.Automation.Actions;
 /// - WaitForGone: After clicking, wait for the clicked image to DISAPPEAR.
 /// - WaitForNext: After clicking, wait for a DIFFERENT image to APPEAR.
 /// </summary>
+[ActionMetadata("Reliable Click", "Input & Gesture", "🔒", IsAdvanced = true)]
 public class ReliableClickAction : ActionBase
 {
     public override string DisplayName => !string.IsNullOrEmpty(Name)
@@ -23,37 +25,40 @@ public class ReliableClickAction : ActionBase
     // ===== Configuration =====
 
     private string _name = string.Empty;
+    private string _templatePath = string.Empty;
+    private double _threshold = 0.8;
+    private int _offsetX = 0;
+    private int _offsetY = 0;
+
+    [ActionParameter("Name", "Friendly name for this action.")]
     public string Name
     {
         get => _name;
         set => SetProperty(ref _name, value);
     }
 
-    private string _templatePath = string.Empty;
-    /// <summary>
-    /// Path to the image to click.
-    /// </summary>
+    [ActionParameter("Image Path", "Path to the image to click.", EditorType = ActionParameterEditorType.ImagePath)]
     public string TemplatePath
     {
         get => _templatePath;
         set => SetProperty(ref _templatePath, value);
     }
 
-    private double _threshold = 0.8;
+    [ActionParameter("Threshold", "Vision match threshold (0.0-1.0).", IsAdvanced = true)]
     public double Threshold
     {
         get => _threshold;
         set => SetProperty(ref _threshold, value);
     }
 
-    private int _offsetX = 0;
+    [ActionParameter("Offset X", "Horizontal click offset.", IsAdvanced = true)]
     public int OffsetX
     {
         get => _offsetX;
         set => SetProperty(ref _offsetX, value);
     }
 
-    private int _offsetY = 0;
+    [ActionParameter("Offset Y", "Vertical click offset.", IsAdvanced = true)]
     public int OffsetY
     {
         get => _offsetY;

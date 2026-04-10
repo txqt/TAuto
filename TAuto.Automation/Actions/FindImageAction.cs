@@ -9,7 +9,7 @@ namespace TAuto.Automation.Actions;
 /// <summary>
 /// Action that finds an image template on the screen and stores the last found location.
 /// </summary>
-[ActionMetadata("Find Image", "Vision", "F")]
+[ActionMetadata("Find Image", "Vision & OCR", "F")]
 public class FindImageAction : ActionBase
 {
     public override string DisplayName => !string.IsNullOrEmpty(Name)

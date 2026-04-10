@@ -1,5 +1,4 @@
-using System.Threading;
-using System.Threading.Tasks;
+using TAuto.Automation.Models;
 using TAuto.Core;
 
 namespace TAuto.Automation.Actions;
@@ -7,20 +6,15 @@ namespace TAuto.Automation.Actions;
 /// <summary>
 /// Simulates a key press (e.g., "Enter", "Space", "F", "Back").
 /// </summary>
+[ActionMetadata("Press Key", "Input & Gesture", "⌨️")]
 public class PressKeyAction : ActionBase
 {
     public override string DisplayName => $"⌨️ Press Key: {Key}";
 
-    /// <summary>
-    /// The key to press. 
-    /// Examples: "Enter", "Space", "Esc", "Back", "Home", "AppSwitch", "F", "M".
-    /// </summary>
+    [ActionParameter("Key Name", "The key to press (e.g., Enter, Esc, AppSwitch).")]
     public string Key { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Optional: Text to type instead of a single key.
-    /// If set, Key is ignored.
-    /// </summary>
+    [ActionParameter("Type Text", "Optional text to type instead of a single key.")]
     public string Text { get; set; } = string.Empty;
 
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)

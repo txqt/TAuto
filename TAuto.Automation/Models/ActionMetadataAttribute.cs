@@ -14,6 +14,7 @@ public class ActionMetadataAttribute : Attribute
     public string Icon { get; }
     public string Description { get; set; }
     public ActionSafetyLevel SafetyLevel { get; set; } = ActionSafetyLevel.Safe;
+    public bool IsAdvanced { get; set; }
 
     public ActionMetadataAttribute(string displayName, string category, string icon = "*")
     {

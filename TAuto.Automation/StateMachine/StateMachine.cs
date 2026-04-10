@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.Json.Serialization;
 using TAuto.Core;
 using TAuto.Automation.StateMachine.Components;
 
@@ -25,11 +26,18 @@ public class StateMachine
     public int DefaultStateTimeoutMs { get; set; } = 0;
     public event EventHandler<string>? OnStateChanged;
 
+    [JsonIgnore]
     public IExecutionLoopMonitor LoopMonitor { get; set; } = new DefaultExecutionLoopMonitor();
+
+    [JsonIgnore]
     public IActionExecutor ActionExecutor { get; set; } = new DefaultActionExecutor();
 
+    [JsonIgnore]
     public StateMachineTrace Trace { get; } = new();
+    
     public event EventHandler<StateMachineTraceEntry>? OnTrace;
+
+    [JsonIgnore]
     public StateMachineMetrics Metrics { get; } = new();
 
     public List<StateTransition> GlobalTransitions { get; set; }

@@ -9,7 +9,7 @@ namespace TAuto.Automation.Actions;
 /// <summary>
 /// Action that sets or modifies a variable in ScriptContext.
 /// </summary>
-[ActionMetadata("Set Variable", "Logic", "V")]
+[ActionMetadata("Set Variable", "Flow & Logic", "🔢")]
 public class SetVariableAction : ActionBase
 {
     public override string DisplayName => Operation switch

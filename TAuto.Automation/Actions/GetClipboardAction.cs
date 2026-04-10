@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
+using TAuto.Automation.Models;
 using TAuto.Core;
 
 namespace TAuto.Automation.Actions;
@@ -9,18 +10,15 @@ namespace TAuto.Automation.Actions;
 /// <summary>
 /// Retrieves text from the system clipboard.
 /// </summary>
+[ActionMetadata("Get Clipboard", "System", "📋", IsAdvanced = true)]
 public class GetClipboardAction : ActionBase
 {
     public override string DisplayName => $"📋 Get Clipboard to ${OutputVariable}";
 
-    /// <summary>
-    /// Variable name to store the clipboard text.
-    /// </summary>
+    [ActionParameter("Output Var", "Variable name to store the clipboard text.", EditorType = ActionParameterEditorType.Choice)]
     public string OutputVariable { get; set; } = "ClipboardText";
 
-    /// <summary>
-    /// Optional: Log the text automatically.
-    /// </summary>
+    [ActionParameter("Log Result", "Whether to automatically log the text.")]
     public bool LogResult { get; set; } = true;
 
     public override Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)

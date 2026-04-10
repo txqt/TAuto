@@ -9,7 +9,7 @@ namespace TAuto.Automation.Actions;
 /// <summary>
 /// Action that swipes from one point to another.
 /// </summary>
-[ActionMetadata("Swipe", "Input", "S")]
+[ActionMetadata("Swipe", "Input & Gesture", "S")]
 public class SwipeAction : ActionBase
 {
     public override string DisplayName => !string.IsNullOrEmpty(Name)

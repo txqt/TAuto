@@ -11,14 +11,16 @@ namespace TAuto.Automation.Actions;
 /// Action that finds an image and clicks on it.
 /// Combines FindImage + Tap into a single action.
 /// </summary>
+[ActionMetadata("Click Image", "Vision & OCR", "🖼️")]
 public class ClickImageAction : ActionBase
 {
     // Id and IsBreakpoint are in ActionBase
-    public override string DisplayName => $"👆 Click {Name}";
+    public override string DisplayName => !string.IsNullOrEmpty(Name)
+        ? Name
+        : $"Click: {TemplatePath}";
     
     private string _name = string.Empty;
-    
-    [ActionParameter("Name", "Optional custom name for this action.")]
+    [ActionParameter("Name", "Friendly name for this action.")]
     public string Name 
     { 
         get => _name; 
@@ -26,7 +28,7 @@ public class ClickImageAction : ActionBase
     }
     
     private string _templatePath = string.Empty;
-    [ActionParameter("Template Path", "Path to the template image file.", EditorType = ActionParameterEditorType.ImagePath)]
+    [ActionParameter("Target Image", "Path to the target image file to click.", EditorType = ActionParameterEditorType.ImagePath)]
     public string TemplatePath 
     { 
         get => _templatePath; 
@@ -136,7 +138,10 @@ public class ClickImageAction : ActionBase
         string? baseDir = context.GetString("BaseDirectory");
         IImage? template = context.Vision.LoadTemplate(TemplatePath, baseDir);
         if (template == null)
-            return ActionResult.Fail($"Cannot load template: {TemplatePath}");
+        {
+            string fullPath = string.IsNullOrEmpty(baseDir) ? TemplatePath : Path.Combine(baseDir, TemplatePath);
+            return ActionResult.Fail($"Cannot load template: {TemplatePath} (Searched in: {fullPath})");
+        }
         
         TemplateMatchResult? matchResult = null;
         DateTime startTime = DateTime.Now;

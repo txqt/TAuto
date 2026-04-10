@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
+using TAuto.Automation.Models;
 using TAuto.Core;
 
 namespace TAuto.Automation.Actions;
@@ -10,7 +11,8 @@ namespace TAuto.Automation.Actions;
 /// </summary>
 public abstract class ActionBase : IAction, System.ComponentModel.INotifyPropertyChanged
 {
-    public string Id { get; set; } = Guid.NewGuid().ToString();
+    [ActionParameter("Action ID", "Unique identifier for this action (used for jumping/looping).", IsAdvanced = true)]
+    public string Id { get; set; } = Guid.NewGuid().ToString().Substring(0, 8);
     
     // Abstract so derived classes must implement it or override it
     public abstract string DisplayName { get; }

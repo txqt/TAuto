@@ -9,7 +9,7 @@ namespace TAuto.Automation.Actions;
 /// <summary>
 /// Logs a message to the script console.
 /// </summary>
-[ActionMetadata("Log", "Flow", "L")]
+[ActionMetadata("Log", "System", "📢")]
 public class LogAction : ActionBase
 {
     public override string DisplayName => $"Log: {Message}";

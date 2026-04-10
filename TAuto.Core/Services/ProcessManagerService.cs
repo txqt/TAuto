@@ -259,7 +259,9 @@ public class ProcessManagerService : IDisposable
                     {
                         try
                         {
-                            string botDir = Path.GetDirectoryName(startupArgs.BotDllPath)!;
+                            string botDir = File.Exists(startupArgs.BotDllPath) 
+                                ? Path.GetDirectoryName(startupArgs.BotDllPath)! 
+                                : startupArgs.BotDllPath;
                             if (OnAutoRestartRequested != null)
                             {
                                 await OnAutoRestartRequested(startupArgs, botDir);
