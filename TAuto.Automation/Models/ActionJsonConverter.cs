@@ -11,13 +11,26 @@ public sealed class ActionJsonConverter : JsonConverter<IAction>
 {
     private const string TypePropertyName = "type";
     private readonly Dictionary<string, Type> _typeMap;
+    private readonly Dictionary<Type, string> _reverseTypeMap;
 
     public ActionJsonConverter()
     {
-        _typeMap = typeof(ActionJsonConverter).Assembly
+        var actionTypes = typeof(ActionJsonConverter).Assembly
             .GetTypes()
             .Where(t => !t.IsAbstract && !t.IsInterface && typeof(IAction).IsAssignableFrom(t))
-            .ToDictionary(t => t.FullName ?? t.Name, t => t, StringComparer.Ordinal);
+            .ToList();
+
+        _typeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
+        _reverseTypeMap = new Dictionary<Type, string>();
+
+        foreach (var t in actionTypes)
+        {
+            var attr = (ActionTypeIdentifierAttribute?)Attribute.GetCustomAttribute(t, typeof(ActionTypeIdentifierAttribute));
+            var identifier = attr?.Identifier ?? t.FullName ?? t.Name;
+
+            _typeMap[identifier] = t;
+            _reverseTypeMap[t] = identifier;
+        }
     }
 
     public override IAction? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -47,7 +60,8 @@ public sealed class ActionJsonConverter : JsonConverter<IAction>
         var serialized = JsonSerializer.SerializeToElement(value, actionType, innerOptions);
 
         writer.WriteStartObject();
-        writer.WriteString(TypePropertyName, actionType.FullName ?? actionType.Name);
+        var identifier = _reverseTypeMap.TryGetValue(actionType, out var id) ? id : (actionType.FullName ?? actionType.Name);
+        writer.WriteString(TypePropertyName, identifier);
         foreach (var property in serialized.EnumerateObject())
         {
             property.WriteTo(writer);
