@@ -27,8 +27,8 @@ public class DefaultProcessSpawner : IProcessSpawner, IDisposable
             {
                 FileName = exePath,
                 Arguments = arguments,
-                UseShellExecute = true,
-                Verb = "runas",
+                UseShellExecute = false,
+                // Verb = "runas",
                 CreateNoWindow = true,
                 WorkingDirectory = workingDirectory
             },
