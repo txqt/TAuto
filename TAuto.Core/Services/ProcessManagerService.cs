@@ -158,7 +158,18 @@ public class ProcessManagerService : IDisposable
         Process process;
         try
         {
-            process = _processSpawner.SpawnWorkerProcess(WorkerExePath, $"--pipe {pipeName} --id {workerId}", botFolder);
+            var exePath = WorkerExePath;
+            
+            // Support starting a Native AOT bot directly
+            if (!string.IsNullOrEmpty(startupArgs.NativeExePath) &&
+                startupArgs.NativeExePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
+                File.Exists(startupArgs.NativeExePath))
+            {
+                exePath = startupArgs.NativeExePath;
+                _logger?.LogInformation($"Native AOT Executable detected: Overriding worker EXE to '{exePath}'");
+            }
+
+            process = _processSpawner.SpawnWorkerProcess(exePath, $"--pipe {pipeName} --id {workerId}", botFolder);
         }
         catch (Exception ex)
         {
