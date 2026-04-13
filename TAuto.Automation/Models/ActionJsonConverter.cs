@@ -6,6 +6,9 @@ namespace TAuto.Automation.Models;
 
 /// <summary>
 /// Polymorphic converter for IAction implementations used inside BotProfile JSON.
+/// 
+/// - Dev mode (default): Uses reflection to auto-discover action types.
+/// - SaaS mode (SAAS_BUILD): Uses StaticActionFactory for AOT compatibility.
 /// </summary>
 public sealed class ActionJsonConverter : JsonConverter<IAction>
 {
@@ -15,6 +18,20 @@ public sealed class ActionJsonConverter : JsonConverter<IAction>
 
     public ActionJsonConverter()
     {
+#if SAAS_BUILD
+        // AOT-safe: Use the static factory (no reflection)
+        _typeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
+        _reverseTypeMap = new Dictionary<Type, string>();
+
+        foreach (var kvp in StaticActionFactory.GetAllFactories())
+        {
+            var instance = kvp.Value();
+            var type = instance.GetType();
+            _typeMap[kvp.Key] = type;
+            _reverseTypeMap[type] = kvp.Key;
+        }
+#else
+        // Dev mode: Reflection-based auto-discovery (unchanged from original)
         var actionTypes = typeof(ActionJsonConverter).Assembly
             .GetTypes()
             .Where(t => !t.IsAbstract && !t.IsInterface && typeof(IAction).IsAssignableFrom(t))
@@ -31,6 +48,7 @@ public sealed class ActionJsonConverter : JsonConverter<IAction>
             _typeMap[identifier] = t;
             _reverseTypeMap[t] = identifier;
         }
+#endif
     }
 
     public override IAction? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
