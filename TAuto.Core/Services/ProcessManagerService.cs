@@ -47,6 +47,8 @@ public class ProcessManagerService : IDisposable
 
     /// <summary>Path to the Worker executable.</summary>
     public string WorkerExePath { get; set; }
+    /// <summary>Path to the VisionServer executable used by native bots.</summary>
+    public string VisionServerExePath { get; set; }
 
     /// <summary>Time to wait before restarting a crashed Worker.</summary>
     public int RestartDelayMs { get; set; } = AutomationDefaults.DefaultWorkerRestartDelayMs;
@@ -91,6 +93,7 @@ public class ProcessManagerService : IDisposable
 
         var baseDir = AppDomain.CurrentDomain.BaseDirectory;
         WorkerExePath = Path.Combine(baseDir, "AutoBot.Worker.exe");
+        VisionServerExePath = Path.Combine(baseDir, "AutoBot.VisionServer.exe");
 
         // FIX-1 (Audit): Heartbeat reaper — kills zombie workers with no heartbeat
         _zombieReaper = new ZombieWorkerReaper(_workers, _intentionalStops, _heartbeatMonitor, _processSpawner, _logger, (w, s) => OnWorkerStatusChanged?.Invoke(w, s));
@@ -156,23 +159,85 @@ public class ProcessManagerService : IDisposable
 
         // 2. Spawn Worker Process
         Process process;
+        Process? visionProcess = null;
         try
         {
             var exePath = WorkerExePath;
+            var isNativeBot = !string.IsNullOrEmpty(startupArgs.NativeExePath) &&
+                              startupArgs.NativeExePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
+                              File.Exists(startupArgs.NativeExePath);
             
             // Support starting a Native AOT bot directly
-            if (!string.IsNullOrEmpty(startupArgs.NativeExePath) &&
-                startupArgs.NativeExePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
-                File.Exists(startupArgs.NativeExePath))
+            if (isNativeBot)
             {
                 exePath = startupArgs.NativeExePath;
                 _logger?.LogInformation($"Native AOT Executable detected: Overriding worker EXE to '{exePath}'");
+
+                startupArgs.VisionPipeName = $"AutoBot_Vision_{workerId}_{Guid.NewGuid():N}";
+                visionProcess = StartVisionServerProcess(startupArgs.VisionPipeName);
+                visionProcess.OutputDataReceived += (_, e) =>
+                {
+                    if (!string.IsNullOrWhiteSpace(e.Data))
+                    {
+                        OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+                        {
+                            WorkerId = workerId,
+                            Level = "INFO",
+                            Message = $"[VISION-OUT] {e.Data}"
+                        });
+                    }
+                };
+                visionProcess.ErrorDataReceived += (_, e) =>
+                {
+                    if (!string.IsNullOrWhiteSpace(e.Data))
+                    {
+                        OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+                        {
+                            WorkerId = workerId,
+                            Level = "ERROR",
+                            Message = $"[VISION-ERR] {e.Data}"
+                        });
+                    }
+                };
+                visionProcess.BeginOutputReadLine();
+                visionProcess.BeginErrorReadLine();
             }
 
             process = _processSpawner.SpawnWorkerProcess(exePath, $"--pipe {pipeName} --id {workerId}", botFolder);
+            process.OutputDataReceived += (_, e) =>
+            {
+                if (!string.IsNullOrWhiteSpace(e.Data))
+                {
+                    OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+                    {
+                        WorkerId = workerId,
+                        Level = "INFO",
+                        Message = $"[PROC-OUT] {e.Data}"
+                    });
+                }
+            };
+            process.ErrorDataReceived += (_, e) =>
+            {
+                if (!string.IsNullOrWhiteSpace(e.Data))
+                {
+                    OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+                    {
+                        WorkerId = workerId,
+                        Level = "ERROR",
+                        Message = $"[PROC-ERR] {e.Data}"
+                    });
+                }
+            };
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
         }
         catch (Exception ex)
         {
+            if (visionProcess != null)
+            {
+                try { _processSpawner.KillProcess(visionProcess); } catch { }
+                try { visionProcess.Dispose(); } catch { }
+            }
             pipeServer.Dispose();
             _logger?.LogError($"Error spawning worker: {ex.Message}");
             throw;
@@ -182,6 +247,7 @@ public class ProcessManagerService : IDisposable
         {
             WorkerId = workerId,
             Process = process,
+            VisionProcess = visionProcess,
             PipeServer = pipeServer,
             StartupArgs = startupArgs,
             Cts = new CancellationTokenSource(),
@@ -196,6 +262,12 @@ public class ProcessManagerService : IDisposable
             {
                 var exitCode = process.ExitCode;
                 _logger?.LogInformation($"Worker '{workerId}' exited with code {exitCode}");
+                OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+                {
+                    WorkerId = workerId,
+                    Level = "ERROR",
+                    Message = $"Worker process exited with code {exitCode}"
+                });
 
                 _tokenService.ReleaseAllForWorker(workerId);
                 // FIX-1 (Audit): exitCode -1 IS now a crash (unhandled exception).
@@ -403,6 +475,24 @@ public class ProcessManagerService : IDisposable
         _workers.TryGetValue(workerId, out IWorkerProcess? worker);
         if (worker == null) return;
 
+        try
+        {
+            var stack = new System.Diagnostics.StackTrace(1, false)
+                .GetFrames()?
+                .Select(frame => frame.GetMethod())
+                .Where(m => m != null)
+                .Select(m => $"{m!.DeclaringType?.FullName}.{m.Name}")
+                .Take(6);
+            var reason = stack == null ? "unknown" : string.Join(" <- ", stack);
+            OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+            {
+                WorkerId = workerId,
+                Level = "ERROR",
+                Message = $"[MANAGER-STOP] StopWorkerAsync invoked by: {reason}"
+            });
+        }
+        catch { }
+
         _intentionalStops.TryAdd(workerId, "stopped");
         OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Stopping);
         
@@ -584,6 +674,13 @@ public class ProcessManagerService : IDisposable
             try { worker.Writer?.Dispose(); } catch { }
             try { worker.Reader?.Dispose(); } catch { }
             try { worker.PipeServer?.Dispose(); } catch { }
+            try
+            {
+                if (worker.VisionProcess is { HasExited: false })
+                    _processSpawner.KillProcess(worker.VisionProcess);
+            }
+            catch { }
+            try { worker.VisionProcess?.Dispose(); } catch { }
             try { worker.Process?.Dispose(); } catch { }
             
             _heartbeatMonitor.Clear(workerId);
@@ -594,6 +691,16 @@ public class ProcessManagerService : IDisposable
             }
         }
         return Task.CompletedTask;
+    }
+
+    private Process StartVisionServerProcess(string visionPipeName)
+    {
+        if (!File.Exists(VisionServerExePath))
+            throw new FileNotFoundException($"VisionServer executable not found: {VisionServerExePath}");
+
+        var workingDirectory = Path.GetDirectoryName(VisionServerExePath) ?? AppDomain.CurrentDomain.BaseDirectory;
+        _logger?.LogInformation("Starting VisionServer with pipe '{PipeName}'", visionPipeName);
+        return _processSpawner.SpawnWorkerProcess(VisionServerExePath, $"--pipe {visionPipeName}", workingDirectory);
     }
 
     public void ClearCrashHistory(string workerId)

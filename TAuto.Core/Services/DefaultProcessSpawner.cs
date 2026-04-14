@@ -30,7 +30,9 @@ public class DefaultProcessSpawner : IProcessSpawner, IDisposable
                 UseShellExecute = false,
                 // Verb = "runas",
                 CreateNoWindow = true,
-                WorkingDirectory = workingDirectory
+                WorkingDirectory = workingDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
             },
             EnableRaisingEvents = true
         };

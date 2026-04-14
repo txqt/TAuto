@@ -14,6 +14,7 @@ public interface IWorkerProcess
 {
     string WorkerId { get; }
     Process Process { get; }
+    Process? VisionProcess { get; set; }
     NamedPipeServerStream PipeServer { get; }
     StreamReader Reader { get; }
     StreamWriter Writer { get; }
@@ -27,6 +28,7 @@ public class WorkerProcess : IWorkerProcess
 {
     public string WorkerId { get; set; } = string.Empty;
     public Process Process { get; set; } = null!;
+    public Process? VisionProcess { get; set; }
     public NamedPipeServerStream PipeServer { get; set; } = null!;
     public StreamReader Reader { get; set; } = null!;
     public StreamWriter Writer { get; set; } = null!;

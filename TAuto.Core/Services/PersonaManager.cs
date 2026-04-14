@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Text.Json;
 using TAuto.Core.Models;
 
 namespace TAuto.Core.Services;
@@ -16,12 +15,6 @@ public class PersonaManager
 
     private static readonly string PersonaDir = Path.Combine(AppDataRoot, "Personas");
     private static readonly string SessionDir = Path.Combine(AppDataRoot, "Sessions");
-
-    private static readonly JsonSerializerOptions JsonOpts = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
 
     // ── Persona ──
 
@@ -39,7 +32,7 @@ public class PersonaManager
             try
             {
                 var json = File.ReadAllText(path);
-                persona = JsonSerializer.Deserialize<BotPersona>(json, JsonOpts)
+                persona = System.Text.Json.JsonSerializer.Deserialize(json, PersonaJsonSerializerContext.Default.BotPersona)
                     ?? BotPersona.GenerateRandom(botId);
             }
             catch
@@ -63,7 +56,7 @@ public class PersonaManager
         {
             Directory.CreateDirectory(PersonaDir);
             var path = Path.Combine(PersonaDir, $"{SanitizeId(persona.Id)}.json");
-            File.WriteAllText(path, JsonSerializer.Serialize(persona, JsonOpts));
+            File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(persona, PersonaJsonSerializerContext.Default.BotPersona));
         }
         catch (Exception ex)
         {
@@ -82,7 +75,7 @@ public class PersonaManager
             try
             {
                 var json = File.ReadAllText(path);
-                return JsonSerializer.Deserialize<BotSession>(json, JsonOpts)
+                return System.Text.Json.JsonSerializer.Deserialize(json, PersonaJsonSerializerContext.Default.BotSession)
                     ?? new BotSession { BotId = botId };
             }
             catch { }
@@ -96,7 +89,7 @@ public class PersonaManager
         {
             Directory.CreateDirectory(SessionDir);
             var path = Path.Combine(SessionDir, $"{SanitizeId(session.BotId)}.json");
-            File.WriteAllText(path, JsonSerializer.Serialize(session, JsonOpts));
+            File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(session, PersonaJsonSerializerContext.Default.BotSession));
         }
         catch (Exception ex)
         {
