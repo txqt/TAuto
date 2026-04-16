@@ -160,10 +160,11 @@ public class ProcessManagerService : IDisposable
         // 2. Spawn Worker Process
         Process process;
         Process? visionProcess = null;
+        bool isNativeBot = false;
         try
         {
             var exePath = WorkerExePath;
-            var isNativeBot = !string.IsNullOrEmpty(startupArgs.NativeExePath) &&
+            isNativeBot = !string.IsNullOrEmpty(startupArgs.NativeExePath) &&
                               startupArgs.NativeExePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
                               File.Exists(startupArgs.NativeExePath);
             
@@ -175,61 +176,9 @@ public class ProcessManagerService : IDisposable
 
                 startupArgs.VisionPipeName = $"AutoBot_Vision_{workerId}_{Guid.NewGuid():N}";
                 visionProcess = StartVisionServerProcess(startupArgs.VisionPipeName);
-                visionProcess.OutputDataReceived += (_, e) =>
-                {
-                    if (!string.IsNullOrWhiteSpace(e.Data))
-                    {
-                        OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
-                        {
-                            WorkerId = workerId,
-                            Level = "INFO",
-                            Message = $"[VISION-OUT] {e.Data}"
-                        });
-                    }
-                };
-                visionProcess.ErrorDataReceived += (_, e) =>
-                {
-                    if (!string.IsNullOrWhiteSpace(e.Data))
-                    {
-                        OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
-                        {
-                            WorkerId = workerId,
-                            Level = "ERROR",
-                            Message = $"[VISION-ERR] {e.Data}"
-                        });
-                    }
-                };
-                visionProcess.BeginOutputReadLine();
-                visionProcess.BeginErrorReadLine();
             }
 
             process = _processSpawner.SpawnWorkerProcess(exePath, $"--pipe {pipeName} --id {workerId}", botFolder);
-            process.OutputDataReceived += (_, e) =>
-            {
-                if (!string.IsNullOrWhiteSpace(e.Data))
-                {
-                    OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
-                    {
-                        WorkerId = workerId,
-                        Level = "INFO",
-                        Message = $"[PROC-OUT] {e.Data}"
-                    });
-                }
-            };
-            process.ErrorDataReceived += (_, e) =>
-            {
-                if (!string.IsNullOrWhiteSpace(e.Data))
-                {
-                    OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
-                    {
-                        WorkerId = workerId,
-                        Level = "ERROR",
-                        Message = $"[PROC-ERR] {e.Data}"
-                    });
-                }
-            };
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
         }
         catch (Exception ex)
         {
@@ -255,8 +204,74 @@ public class ProcessManagerService : IDisposable
         };
         _workers[workerId] = worker;
 
+        // 3. Attach Event Handlers (Stored in WorkerProcess to allow clean unsubscription)
+        if (isNativeBot && visionProcess != null)
+        {
+            worker.VisionOutputHandler = (_, e) =>
+            {
+                if (!string.IsNullOrWhiteSpace(e.Data))
+                {
+                    OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+                    {
+                        WorkerId = workerId,
+                        Level = "INFO",
+                        Message = $"[VISION-OUT] {e.Data}"
+                    });
+                }
+            };
+            worker.VisionErrorHandler = (_, e) =>
+            {
+                if (!string.IsNullOrWhiteSpace(e.Data))
+                {
+                    OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+                    {
+                        WorkerId = workerId,
+                        Level = "ERROR",
+                        Message = $"[VISION-ERR] {e.Data}"
+                    });
+                }
+            };
+            visionProcess.OutputDataReceived += worker.VisionOutputHandler;
+            visionProcess.ErrorDataReceived += worker.VisionErrorHandler;
+            visionProcess.BeginOutputReadLine();
+            visionProcess.BeginErrorReadLine();
+        }
+
+        worker.OutputHandler = (_, e) =>
+        {
+            if (!string.IsNullOrWhiteSpace(e.Data))
+            {
+                OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+                {
+                    WorkerId = workerId,
+                    Level = "INFO",
+                    Message = $"[PROC-OUT] {e.Data}"
+                });
+            }
+        };
+        worker.ErrorHandler = (_, e) =>
+        {
+            if (!string.IsNullOrWhiteSpace(e.Data))
+            {
+                OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+                {
+                    WorkerId = workerId,
+                    Level = "ERROR",
+                    Message = $"[PROC-ERR] {e.Data}"
+                });
+            }
+        };
+        process.OutputDataReceived += worker.OutputHandler;
+        process.ErrorDataReceived += worker.ErrorHandler;
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        // Break closure capture of large startupArgs object
+        string capturedBotDllPath = startupArgs.BotDllPath;
+        var capturedStartupArgs = startupArgs;
+
         // FIX-3: Attach Process Monitors Immediately
-        process.Exited += async (_, _) =>
+        worker.ExitedHandler = async (_, _) =>
         {
             try
             {
@@ -342,16 +357,16 @@ public class ProcessManagerService : IDisposable
                     {
                         try
                         {
-                            string botDir = File.Exists(startupArgs.BotDllPath) 
-                                ? Path.GetDirectoryName(startupArgs.BotDllPath)! 
-                                : startupArgs.BotDllPath;
+                            string botDir = File.Exists(capturedBotDllPath) 
+                                ? Path.GetDirectoryName(capturedBotDllPath)! 
+                                : capturedBotDllPath;
                             if (OnAutoRestartRequested != null)
                             {
-                                await OnAutoRestartRequested(startupArgs, botDir);
+                                await OnAutoRestartRequested(capturedStartupArgs, botDir);
                             }
                             else
                             {
-                                await StartWorkerAsync(startupArgs, botDir);
+                                await StartWorkerAsync(capturedStartupArgs, botDir);
                             }
                         }
                         catch (Exception ex)
@@ -373,6 +388,8 @@ public class ProcessManagerService : IDisposable
                 OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.HandlerError);
             }
         };
+        process.Exited += worker.ExitedHandler;
+
 
         // 3. Wait for Worker to connect
         try
@@ -664,13 +681,37 @@ public class ProcessManagerService : IDisposable
 
     private Task RemoveWorkerAsync(string workerId)
     {
-        // FIX P-1 (Audit): Do NOT clear _intentionalStops here.
-        // The Process.Exited handler (line ~172) is the correct consumer of this flag.
-        // Clearing it here races with the Exited handler and can cause
-        // the exit to be misclassified as a crash, triggering unwanted auto-restart.
+        // ... auto-restart.
         if (_workers.TryRemove(workerId, out var worker))
         {
+            // 1. Unsubscribe from all event handlers to break GC roots
+            if (worker is WorkerProcess wp)
+            {
+                if (wp.Process != null)
+                {
+                    if (wp.ExitedHandler != null) try { wp.Process.Exited -= wp.ExitedHandler; } catch { }
+                    if (wp.OutputHandler != null) try { wp.Process.OutputDataReceived -= wp.OutputHandler; } catch { }
+                    if (wp.ErrorHandler != null) try { wp.Process.ErrorDataReceived -= wp.ErrorHandler; } catch { }
+                }
+
+                if (wp.VisionProcess != null)
+                {
+                    if (wp.VisionOutputHandler != null) try { wp.VisionProcess.OutputDataReceived -= wp.VisionOutputHandler; } catch { }
+                    if (wp.VisionErrorHandler != null) try { wp.VisionProcess.ErrorDataReceived -= wp.VisionErrorHandler; } catch { }
+                }
+
+                // Clear delegate references
+                wp.ExitedHandler = null;
+                wp.OutputHandler = null;
+                wp.ErrorHandler = null;
+                wp.VisionOutputHandler = null;
+                wp.VisionErrorHandler = null;
+            }
+
             worker.Cts.Cancel();
+
+            try { worker.Cts.Dispose(); } catch { }
+
             try { worker.Writer?.Dispose(); } catch { }
             try { worker.Reader?.Dispose(); } catch { }
             try { worker.PipeServer?.Dispose(); } catch { }
@@ -688,6 +729,12 @@ public class ProcessManagerService : IDisposable
             if (_writeLocks.TryRemove(workerId, out var writeLock))
             {
                 writeLock.Dispose();
+            }
+
+            // Break reference to large startup object to assist GC
+            if (worker is WorkerProcess wp2)
+            {
+                wp2.StartupArgs = null!;
             }
         }
         return Task.CompletedTask;

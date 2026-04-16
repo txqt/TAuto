@@ -36,4 +36,12 @@ public class WorkerProcess : IWorkerProcess
     public CancellationTokenSource Cts { get; set; } = null!;
     public DateTime StartTimeUtc { get; set; }
     public bool IsInitialized { get; set; } = false;
+
+    // Delegate tracking to break event handler roots and prevent memory leaks
+    public EventHandler? ExitedHandler { get; set; }
+    public DataReceivedEventHandler? OutputHandler { get; set; }
+    public DataReceivedEventHandler? ErrorHandler { get; set; }
+    public DataReceivedEventHandler? VisionOutputHandler { get; set; }
+    public DataReceivedEventHandler? VisionErrorHandler { get; set; }
 }
+
