@@ -1,4 +1,4 @@
-﻿using System.Threading.Tasks;
+using System.Threading.Tasks;
 using TAuto.Core.Imaging;
 using TAuto.Core.Models;
 
@@ -53,4 +53,9 @@ public interface IDeviceController : ITouchInputDevice, IKeyboardInputDevice, IS
     /// Check if target is available/connected
     /// </summary>
     Task<bool> IsAvailableAsync();
+
+    /// <summary>
+    /// The last measured communication latency in milliseconds (e.g., ADB round-trip).
+    /// </summary>
+    double LastCommunicationLatencyMs { get; }
 }

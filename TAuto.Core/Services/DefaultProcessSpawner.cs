@@ -46,7 +46,7 @@ public class DefaultProcessSpawner : IProcessSpawner, IDisposable
 
     public void KillProcess(Process process)
     {
-        try { process.Kill(); } catch { }
+        try { process.Kill(true); } catch { }
     }
 
     public void TerminateAll()

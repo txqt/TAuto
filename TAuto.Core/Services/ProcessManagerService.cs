@@ -31,6 +31,7 @@ public class ProcessManagerService : IDisposable
     
     private readonly ConcurrentDictionary<string, IWorkerProcess> _workers = new();
     private readonly ConcurrentDictionary<string, string> _intentionalStops = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _workerLocks = new();
     private readonly ZombieWorkerReaper _zombieReaper;
     private readonly WorkerIpcListener _ipcListener;
     private bool _disposed;
@@ -119,6 +120,11 @@ public class ProcessManagerService : IDisposable
         var workerId = string.IsNullOrEmpty(startupArgs.WorkerId) 
             ? $"worker-{Random.Shared.Next(1000, 9999)}" 
             : startupArgs.WorkerId;
+            
+        var workerLock = _workerLocks.GetOrAdd(workerId, _ => new SemaphoreSlim(1, 1));
+        await workerLock.WaitAsync(cancellationToken);
+        try
+        {
             
         // Clean up any stale intentional stops from previous sessions for this workerId
         _intentionalStops.TryRemove(workerId, out _);
@@ -482,91 +488,118 @@ public class ProcessManagerService : IDisposable
         // Start background message listener
         _ = Task.Run(() => _ipcListener.ListenAsync(worker), worker.Cts.Token);
 
-
+        // LATE STOP DETECTION: If a stop was intentionally requested while this was spinning up
+        if (_intentionalStops.ContainsKey(workerId))
+        {
+            _logger?.LogWarning($"Late stop detected for '{workerId}' immediately after start. Killing process.");
+            try { _processSpawner.KillProcess(worker.Process); } catch { }
+            if (worker.VisionProcess != null) try { _processSpawner.KillProcess(worker.VisionProcess); } catch { }
+            OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Stopped);
+            _workers.TryRemove(workerId, out _);
+            return workerId;
+        }
 
         return workerId;
+        }
+        finally
+        {
+            var lk = _workerLocks.TryGetValue(workerId, out var sdl) ? sdl : null;
+            lk?.Release();
+        }
     }
 
     public async Task StopWorkerAsync(string workerId)
     {
-        _workers.TryGetValue(workerId, out IWorkerProcess? worker);
-        if (worker == null) return;
-
+        var workerLock = _workerLocks.GetOrAdd(workerId, _ => new SemaphoreSlim(1, 1));
+        await workerLock.WaitAsync();
         try
         {
-            var stack = new System.Diagnostics.StackTrace(1, false)
-                .GetFrames()?
-                .Select(frame => frame.GetMethod())
-                .Where(m => m != null)
-                .Select(m => $"{m!.DeclaringType?.FullName}.{m.Name}")
-                .Take(6);
-            var reason = stack == null ? "unknown" : string.Join(" <- ", stack);
-            OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+            _workers.TryGetValue(workerId, out IWorkerProcess? worker);
+            if (worker == null) return;
+
+            try
             {
-                WorkerId = workerId,
-                Level = "ERROR",
-                Message = $"[MANAGER-STOP] StopWorkerAsync invoked by: {reason}"
-            });
-        }
-        catch { }
-
-        _intentionalStops.TryAdd(workerId, "stopped");
-        OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Stopping);
-        
-        bool killedSuccessfully = true;
-
-        try
-        {
-            var stopMsg = IpcMessage.Create(IpcMessageTypes.Stop);
-            await worker.Writer.WriteLineAsync(stopMsg.ToJson());
-
-            // AUDIT FIX (CORRECTION-5): Use async WaitForExitAsync instead of blocking WaitForExit
-            bool exited;
-            using (var exitCts = new CancellationTokenSource(ShutdownTimeoutMs))
-            {
-                try
+                var stack = new System.Diagnostics.StackTrace(1, false)
+                    .GetFrames()?
+                    .Select(frame => frame.GetMethod())
+                    .Where(m => m != null)
+                    .Select(m => $"{m!.DeclaringType?.FullName}.{m.Name}")
+                    .Take(6);
+                var reason = stack == null ? "unknown" : string.Join(" <- ", stack);
+                OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
                 {
-                    await worker.Process.WaitForExitAsync(exitCts.Token);
-                    exited = true;
+                    WorkerId = workerId,
+                    Level = "ERROR",
+                    Message = $"[MANAGER-STOP] StopWorkerAsync invoked by: {reason}"
+                });
+            }
+            catch { }
+
+            _intentionalStops.TryAdd(workerId, "stopped");
+            OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Stopping);
+            
+            bool killedSuccessfully = true;
+
+            try
+            {
+                var stopMsg = IpcMessage.Create(IpcMessageTypes.Stop);
+                await worker.Writer.WriteLineAsync(stopMsg.ToJson());
+
+                // AUDIT FIX (CORRECTION-5): Use async WaitForExitAsync instead of blocking WaitForExit
+                bool exited;
+                using (var exitCts = new CancellationTokenSource(ShutdownTimeoutMs))
+                {
+                    try
+                    {
+                        await worker.Process.WaitForExitAsync(exitCts.Token);
+                        exited = true;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        exited = false;
+                    }
                 }
-                catch (OperationCanceledException)
+                if (!exited)
                 {
-                    exited = false;
+                    _logger?.LogWarning($"Worker '{workerId}' didn't stop gracefully. Killing.");
+                    try 
+                    { 
+                        _processSpawner.KillProcess(worker.Process); 
+                        if (worker.VisionProcess != null) { _processSpawner.KillProcess(worker.VisionProcess); }
+                    }
+                    catch (Exception killEx)
+                    {
+                        _logger?.LogError($"Failed to kill Worker '{workerId}' after timeout: {killEx.Message}");
+                        OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.HandlerError);
+                        killedSuccessfully = false;
+                    }
                 }
             }
-            if (!exited)
+            catch (Exception ex)
             {
-                _logger?.LogWarning($"Worker '{workerId}' didn't stop gracefully. Killing.");
+                _logger?.LogError($"Error stopping Worker '{workerId}': {ex.Message}");
                 try 
                 { 
                     _processSpawner.KillProcess(worker.Process); 
+                    if (worker.VisionProcess != null) { _processSpawner.KillProcess(worker.VisionProcess); }
                 }
                 catch (Exception killEx)
                 {
-                    _logger?.LogError($"Failed to kill Worker '{workerId}' after timeout: {killEx.Message}");
+                    _logger?.LogError($"Failed to forcefully kill Worker '{workerId}': {killEx.Message}");
                     OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.HandlerError);
                     killedSuccessfully = false;
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError($"Error stopping Worker '{workerId}': {ex.Message}");
-            try 
-            { 
-                _processSpawner.KillProcess(worker.Process); 
-            }
-            catch (Exception killEx)
+            
+            if (!killedSuccessfully)
             {
-                _logger?.LogError($"Failed to forcefully kill Worker '{workerId}': {killEx.Message}");
-                OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.HandlerError);
-                killedSuccessfully = false;
+                await RemoveWorkerAsync(workerId);
             }
         }
-        
-        if (!killedSuccessfully)
+        finally
         {
-            await RemoveWorkerAsync(workerId);
+            var lk = _workerLocks.TryGetValue(workerId, out var sdl) ? sdl : null;
+            lk?.Release();
         }
     }
 
@@ -648,11 +681,34 @@ public class ProcessManagerService : IDisposable
 
     public List<(string Id, bool IsRunning, long MemoryBytes)> GetWorkerStatuses()
     {
-        return _workers.Values.Select(w => (
-            w.WorkerId,
-            !w.Process.HasExited,
-            _heartbeatMonitor.GetLastHeartbeat(w.WorkerId)?.MemoryBytes ?? 0
-        )).ToList();
+        var results = new List<(string Id, bool IsRunning, long MemoryBytes)>();
+        foreach (var w in _workers.Values)
+        {
+            try
+            {
+                // P0-4: Guard against ObjectDisposedException
+                var proc = w.Process;
+                bool isRunning = proc != null && !proc.HasExited;
+                long mem = _heartbeatMonitor.GetLastHeartbeat(w.WorkerId)?.MemoryBytes ?? 0;
+                results.Add((w.WorkerId, isRunning, mem));
+            }
+            catch { /* Ignore disposed processes */ }
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// Safely checks if a worker process is still alive without risking ObjectDisposedException or dictionary race.
+    /// </summary>
+    public bool IsWorkerAlive(string workerId)
+    {
+        if (!_workers.TryGetValue(workerId, out var worker)) return false;
+        try
+        {
+            var proc = worker.Process;
+            return proc != null && !proc.HasExited;
+        }
+        catch { return false; }
     }
 
     /// <summary>
@@ -726,9 +782,10 @@ public class ProcessManagerService : IDisposable
             
             _heartbeatMonitor.Clear(workerId);
             _logStreamer.CloseWriter(workerId);
-            if (_writeLocks.TryRemove(workerId, out var writeLock))
+            // FIX: Clean up SemaphoreSlim to prevent memory leak
+            if (_workerLocks.TryRemove(workerId, out var lk))
             {
-                writeLock.Dispose();
+                lk.Dispose();
             }
 
             // Break reference to large startup object to assist GC
@@ -774,6 +831,7 @@ public class ProcessManagerService : IDisposable
         _shutdownCts.Dispose();
 
         _zombieReaper?.Dispose();
+        _memoryDiagnosticsTimer?.Dispose(); // FIX: Dispose timer
         _processSpawner.TerminateAll();
         if (_processSpawner is IDisposable dispSpawner) dispSpawner.Dispose();
         
