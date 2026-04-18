@@ -782,11 +782,9 @@ public class ProcessManagerService : IDisposable
             
             _heartbeatMonitor.Clear(workerId);
             _logStreamer.CloseWriter(workerId);
-            // FIX: Clean up SemaphoreSlim to prevent memory leak
-            if (_workerLocks.TryRemove(workerId, out var lk))
-            {
-                lk.Dispose();
-            }
+            
+            _workerLocks.TryRemove(workerId, out _);
+            _writeLocks.TryRemove(workerId, out _);
 
             // Break reference to large startup object to assist GC
             if (worker is WorkerProcess wp2)
