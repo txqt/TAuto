@@ -331,12 +331,10 @@ public class ProcessManagerService : IDisposable
                 OnWorkerStatusChanged?.Invoke(workerId, status);
 
                 bool shouldRestart = false;
-                if (_workers.TryGetValue(workerId, out var w))
-                {
-                    shouldRestart = AutoRestart && (isCrash || isReaped) && !isStartTimeout && !isHardwareMissing && !isNativeCrash && !_disposed && w.IsInitialized && !_isShuttingDown;
-                }
+                // Use the closure's 'worker' instance instead of querying the dictionary to avoid races if worker was replaced
+                shouldRestart = AutoRestart && (isCrash || isReaped) && !isStartTimeout && !isHardwareMissing && !isNativeCrash && !_disposed && worker.IsInitialized && !_isShuttingDown;
 
-                await RemoveWorkerAsync(workerId);
+                await RemoveWorkerAsync(workerId, worker);
 
                 if (shouldRestart)
                 {
@@ -479,7 +477,15 @@ public class ProcessManagerService : IDisposable
 
         // 6. Send start command
         var startMsg = IpcMessage.Create(IpcMessageTypes.Start, startupArgs);
-        await worker.Writer.WriteLineAsync(startMsg.ToJson());
+        var writeStartTask = worker.Writer.WriteLineAsync(startMsg.ToJson());
+        try
+        {
+            await writeStartTask.WaitAsync(TimeSpan.FromMilliseconds(2000));
+        }
+        catch (TimeoutException)
+        {
+            _logger?.LogWarning($"StartWorkerAsync: WriteLineAsync timed out for '{workerId}'. Continuing anyway.");
+        }
 
         worker.IsInitialized = true;
 
@@ -503,15 +509,25 @@ public class ProcessManagerService : IDisposable
         }
         finally
         {
-            var lk = _workerLocks.TryGetValue(workerId, out var sdl) ? sdl : null;
-            lk?.Release();
+            try { workerLock?.Release(); } catch (ObjectDisposedException) { }
         }
     }
 
     public async Task StopWorkerAsync(string workerId)
     {
         var workerLock = _workerLocks.GetOrAdd(workerId, _ => new SemaphoreSlim(1, 1));
-        await workerLock.WaitAsync();
+        bool lockAcquired = false;
+        try
+        {
+            lockAcquired = await workerLock.WaitAsync(TimeSpan.FromMilliseconds(ShutdownTimeoutMs));
+        }
+        catch (ObjectDisposedException) { }
+
+        if (!lockAcquired)
+        {
+            _logger?.LogWarning($"StopWorkerAsync: Could not acquire lock for '{workerId}', proceeding to force stop.");
+        }
+
         try
         {
             _workers.TryGetValue(workerId, out IWorkerProcess? worker);
@@ -543,7 +559,15 @@ public class ProcessManagerService : IDisposable
             try
             {
                 var stopMsg = IpcMessage.Create(IpcMessageTypes.Stop);
-                await worker.Writer.WriteLineAsync(stopMsg.ToJson());
+                var writeTask = worker.Writer.WriteLineAsync(stopMsg.ToJson());
+                try
+                {
+                    await writeTask.WaitAsync(TimeSpan.FromMilliseconds(2000));
+                }
+                catch (TimeoutException)
+                {
+                    _logger?.LogWarning($"StopWorkerAsync: WriteLineAsync timed out for '{workerId}'.");
+                }
 
                 // AUDIT FIX (CORRECTION-5): Use async WaitForExitAsync instead of blocking WaitForExit
                 bool exited;
@@ -598,8 +622,10 @@ public class ProcessManagerService : IDisposable
         }
         finally
         {
-            var lk = _workerLocks.TryGetValue(workerId, out var sdl) ? sdl : null;
-            lk?.Release();
+            if (lockAcquired)
+            {
+                try { workerLock?.Release(); } catch (ObjectDisposedException) { }
+            }
         }
     }
 
@@ -675,7 +701,7 @@ public class ProcessManagerService : IDisposable
         }
         finally
         {
-            writeLock.Release();
+            try { writeLock?.Release(); } catch (ObjectDisposedException) { }
         }
     }
 
@@ -735,13 +761,26 @@ public class ProcessManagerService : IDisposable
 
 
 
-    private Task RemoveWorkerAsync(string workerId)
+    private Task RemoveWorkerAsync(string workerId, IWorkerProcess? expectedWorker = null)
     {
-        // ... auto-restart.
-        if (_workers.TryRemove(workerId, out var worker))
+        bool isCurrentWorker = true;
+        
+        if (expectedWorker != null)
+        {
+            // Conditional atomic removal
+            var dict = (ICollection<KeyValuePair<string, IWorkerProcess>>)_workers;
+            isCurrentWorker = dict.Remove(new KeyValuePair<string, IWorkerProcess>(workerId, expectedWorker));
+        }
+        else
+        {
+            isCurrentWorker = _workers.TryRemove(workerId, out expectedWorker);
+        }
+
+        var workerToClean = expectedWorker;
+        if (workerToClean != null)
         {
             // 1. Unsubscribe from all event handlers to break GC roots
-            if (worker is WorkerProcess wp)
+            if (workerToClean is WorkerProcess wp)
             {
                 if (wp.Process != null)
                 {
@@ -764,34 +803,37 @@ public class ProcessManagerService : IDisposable
                 wp.VisionErrorHandler = null;
             }
 
-            worker.Cts.Cancel();
-
-            try { worker.Cts.Dispose(); } catch { }
-
-            try { worker.Writer?.Dispose(); } catch { }
-            try { worker.Reader?.Dispose(); } catch { }
-            try { worker.PipeServer?.Dispose(); } catch { }
+            workerToClean.Cts?.Cancel();
+            try { workerToClean.Cts?.Dispose(); } catch { }
+            try { workerToClean.Writer?.Dispose(); } catch { }
+            try { workerToClean.Reader?.Dispose(); } catch { }
+            try { workerToClean.PipeServer?.Dispose(); } catch { }
             try
             {
-                if (worker.VisionProcess is { HasExited: false })
-                    _processSpawner.KillProcess(worker.VisionProcess);
+                if (workerToClean.VisionProcess is { HasExited: false })
+                    _processSpawner.KillProcess(workerToClean.VisionProcess);
             }
             catch { }
-            try { worker.VisionProcess?.Dispose(); } catch { }
-            try { worker.Process?.Dispose(); } catch { }
-            
-            _heartbeatMonitor.Clear(workerId);
-            _logStreamer.CloseWriter(workerId);
-            
-            _workerLocks.TryRemove(workerId, out _);
-            _writeLocks.TryRemove(workerId, out _);
+            try { workerToClean.VisionProcess?.Dispose(); } catch { }
+            try { workerToClean.Process?.Dispose(); } catch { }
 
             // Break reference to large startup object to assist GC
-            if (worker is WorkerProcess wp2)
+            if (workerToClean is WorkerProcess wp2)
             {
                 wp2.StartupArgs = null!;
             }
         }
+
+        // Only clean up global state (locks, heartbeats) if this was the current active worker for this ID
+        if (isCurrentWorker)
+        {
+            _heartbeatMonitor.Clear(workerId);
+            _logStreamer.CloseWriter(workerId);
+            
+            if (_workerLocks.TryRemove(workerId, out var workerLock)) workerLock.Dispose();
+            if (_writeLocks.TryRemove(workerId, out var writeLock)) writeLock.Dispose();
+        }
+
         return Task.CompletedTask;
     }
 
