@@ -66,7 +66,7 @@ public class ClickTextAction : ActionBase
             if (context.LastScreenCapture == null)
                 return ActionResult.Fail("Cannot capture screen");
             
-            var blocks = context.Ocr.GetTextBlocks(context.LastScreenCapture);
+            var blocks = await context.Ocr.GetTextBlocksAsync(context.LastScreenCapture, ct: ct);
             var m = blocks.FirstOrDefault(b => CheckMatch(b.Text));
             if (m != null) match = m;
             

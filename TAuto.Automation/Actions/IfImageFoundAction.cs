@@ -110,7 +110,7 @@ public class IfImageFoundAction : ActionBase
         }
 
         string? baseDir = context.GetString("BaseDirectory");
-        IImage? template = context.Vision.LoadTemplate(TemplatePath, baseDir);
+        IImage? template = await context.Vision.LoadTemplateAsync(TemplatePath, baseDir, ct);
         if (template == null)
         {
             return ActionResult.Fail($"Cannot load template: {TemplatePath}");
@@ -131,7 +131,7 @@ public class IfImageFoundAction : ActionBase
             var result = context.GetCachedMatch(TemplatePath, Threshold);
             if (result == null)
             {
-                result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath, disableMultiScale: DisableMultiScale);
+                result = await context.Vision.FindTemplateAsync(context.LastScreenCapture, template, Threshold, TemplatePath, disableMultiScale: DisableMultiScale);
                 context.CacheMatch(TemplatePath, Threshold, result);
             }
 

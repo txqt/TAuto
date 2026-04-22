@@ -50,7 +50,7 @@ public class WaitForColorAction : ActionBase
             await context.UpdateScreenCaptureAsync(force: true);
             if (context.LastScreenCapture != null)
             {
-                var result = context.Vision.FindColor(context.LastScreenCapture, new ColorSearchOptions
+                var result = await context.Vision.FindColorAsync(context.LastScreenCapture, new ColorSearchOptions
                 {
                     TargetColor = color,
                     Tolerance = Tolerance,

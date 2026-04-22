@@ -136,7 +136,7 @@ public class ClickImageAction : ActionBase
         
         // Load template
         string? baseDir = context.GetString("BaseDirectory");
-        IImage? template = context.Vision.LoadTemplate(TemplatePath, baseDir);
+        IImage? template = await context.Vision.LoadTemplateAsync(TemplatePath, baseDir, ct);
         if (template == null)
         {
             string fullPath = string.IsNullOrEmpty(baseDir) ? TemplatePath : Path.Combine(baseDir, TemplatePath);
@@ -164,18 +164,18 @@ public class ClickImageAction : ActionBase
             if (result == null)
             {
                 // Not in cache, perform template matching
-                result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath, disableMultiScale: DisableMultiScale);
+                result = await context.Vision.FindTemplateAsync(context.LastScreenCapture, template, Threshold, TemplatePath, disableMultiScale: DisableMultiScale);
                 
                 // Store in cache for subsequent actions or global transitions in this frame
                 context.CacheMatch(TemplatePath, Threshold, result);
             }
             
-            if (result.Found)
+            if (result != null && result.Found)
             {
                 matchResult = result;
             }
             
-            if (confirmation.RecordResult(result.Found))
+            if (confirmation.RecordResult(result?.Found ?? false))
                 break;
             
             // Check timeout

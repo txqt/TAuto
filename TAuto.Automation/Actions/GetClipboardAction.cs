@@ -21,36 +21,40 @@ public class GetClipboardAction : ActionBase
     [ActionParameter("Log Result", "Whether to automatically log the text.")]
     public bool LogResult { get; set; } = true;
 
-    public override Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
+    public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
     {
-        string text = string.Empty;
-        Exception? error = null;
-
-        var t = new Thread(() =>
+        var tcs = new TaskCompletionSource<string>();
+        var thread = new Thread(() =>
         {
             try
             {
-                text = ClipboardHelper.GetText();
+                tcs.SetResult(ClipboardHelper.GetText());
             }
             catch (Exception ex)
             {
-                error = ex;
+                tcs.SetException(ex);
             }
         });
-        
-        t.SetApartmentState(ApartmentState.STA);
-        t.Start();
-        t.Join();
 
-        if (error != null)
-            return Task.FromResult(ActionResult.Fail($"Clipboard Error: {error.Message}"));
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+
+        string text;
+        try
+        {
+            text = await tcs.Task;
+        }
+        catch (Exception ex)
+        {
+            return ActionResult.Fail($"Clipboard Error: {ex.Message}");
+        }
 
         context.SetVariable(OutputVariable, text);
 
         if (LogResult)
             context.Logger?.Info($"Clipboard [{OutputVariable}]: {text}");
 
-        return Task.FromResult(ActionResult.Ok());
+        return ActionResult.Ok();
     }
 }
 

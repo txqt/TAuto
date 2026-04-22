@@ -63,7 +63,7 @@ public class IfTextFoundAction : ActionBase
             if (context.LastScreenCapture == null)
                 return ActionResult.Fail("Cannot capture screen");
             
-            string foundText = context.Ocr.GetText(context.LastScreenCapture);
+            string foundText = await context.Ocr.GetTextAsync(context.LastScreenCapture, ct: ct);
             bool found = !string.IsNullOrEmpty(foundText) && CheckMatch(foundText);
             
             if (confirmation.RecordResult(found))

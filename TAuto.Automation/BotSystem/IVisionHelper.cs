@@ -14,7 +14,7 @@ public interface IVisionHelper
     Task<Point?> FindColorAsync(Color color, int tolerance = 10, Rectangle? region = null, int minPixelCount = 1);
     Task<bool> WaitForColorAsync(Color color, int timeoutMs = 5000, int tolerance = 10, Rectangle? region = null, int minPixelCount = 1);
     
-    TemplateMatchResult[] FindTemplates(IImage source,
+    Task<TemplateMatchResult[]> FindTemplatesAsync(IImage source,
         (IImage Template, string? Path, double Threshold)[] templates,
         Rectangle? roi = null,
         Rectangle[]? regions = null,

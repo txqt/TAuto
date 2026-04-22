@@ -58,7 +58,7 @@ public class ExtractTextAction : ActionBase
     /// <summary>
     /// Optional whitelist of allowed characters (e.g. "0123456789").
     /// </summary>
-    public string Whitelist { get; set; }
+    public string? Whitelist { get; set; }
 
     /// <summary>
     /// Optional: Log the extracted text automatically.
@@ -104,7 +104,7 @@ public class ExtractTextAction : ActionBase
     /// If set to a directory path, saves debug images (full screenshot + cropped region) there.
     /// Useful for verifying coordinate accuracy.
     /// </summary>
-    public string DebugSavePath { get; set; }
+    public string? DebugSavePath { get; set; }
 
     public override async Task<ActionResult> ExecuteAsync(ScriptContext context, CancellationToken ct)
     {
@@ -165,15 +165,15 @@ public class ExtractTextAction : ActionBase
             string text;
             if (UseVoting)
             {
-                text = await Task.Run(() => context.Ocr.GetTextWithVoting(source, Language, Scale, Whitelist, Threshold > 0 ? Threshold : 150, Invert, BorderSize, PageSegMode), ct);
+                text = await context.Ocr.GetTextWithVotingAsync(source, Language, Scale, Whitelist, Threshold > 0 ? Threshold : 150, Invert, BorderSize, PageSegMode, ct);
             }
             else if (UseSegmentation)
             {
-                text = await Task.Run(() => context.Ocr.GetTextWithSegmentation(source, Language, Scale, Whitelist, Threshold > 0 ? Threshold : 150, Invert, BorderSize, PageSegMode), ct);
+                text = await context.Ocr.GetTextWithSegmentationAsync(source, Language, Scale, Whitelist, Threshold > 0 ? Threshold : 150, Invert, BorderSize, PageSegMode, ct);
             }
             else
             {
-                text = await Task.Run(() => context.Ocr.GetText(source, Language, Scale, Whitelist, Threshold, Invert, BorderSize, PageSegMode), ct);
+                text = await context.Ocr.GetTextAsync(source, Language, Scale, Whitelist, Threshold, Invert, BorderSize, PageSegMode, ct);
             }
             
             if (Trim && text != null)

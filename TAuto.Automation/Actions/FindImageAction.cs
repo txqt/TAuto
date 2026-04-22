@@ -44,7 +44,7 @@ public class FindImageAction : ActionBase
         }
 
         string? baseDir = context.GetString("BaseDirectory");
-        IImage? template = context.Vision.LoadTemplate(TemplatePath, baseDir);
+        IImage? template = await context.Vision.LoadTemplateAsync(TemplatePath, baseDir, ct);
         if (template == null)
         {
             return ActionResult.Fail($"Cannot load template: {TemplatePath}");
@@ -56,7 +56,7 @@ public class FindImageAction : ActionBase
             return ActionResult.Fail("Cannot capture screen");
         }
 
-        var result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
+        var result = await context.Vision.FindTemplateAsync(context.LastScreenCapture, template, Threshold, TemplatePath);
         context.LastFoundImageLocation = result.Found ? result.CenterLocation : null;
 
         if (!string.IsNullOrEmpty(ResultVariableName))

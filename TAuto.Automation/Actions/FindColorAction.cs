@@ -48,7 +48,7 @@ public class FindColorAction : ActionBase
             ? new Rectangle(RegionX, RegionY, RegionWidth, RegionHeight)
             : null;
 
-        var result = context.Vision.FindColor(context.LastScreenCapture, new ColorSearchOptions
+        var result = await context.Vision.FindColorAsync(context.LastScreenCapture, new ColorSearchOptions
         {
             TargetColor = color,
             Tolerance = Tolerance,

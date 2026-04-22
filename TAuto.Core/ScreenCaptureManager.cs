@@ -202,10 +202,13 @@ public class ScreenCaptureManager : IDisposable
                 // The captureTask is orphaned after timeout, but it will eventually complete
                 // and produce an IImage that nobody consumes. Attach a continuation to
                 // dispose it, preventing ~8MB leak per timeout event.
-                _ = captureTask.ContinueWith(t =>
+                _ = captureTask.ContinueWith(async t =>
                 {
                     if (t.IsCompletedSuccessfully)
-                        t.Result?.Dispose();
+                    {
+                        var img = await t;
+                        img?.Dispose();
+                    }
                 }, TaskContinuationOptions.OnlyOnRanToCompletion);
 
                 _consecutiveTimeouts++;

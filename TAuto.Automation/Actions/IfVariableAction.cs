@@ -55,8 +55,6 @@ else
     
     return Task.FromResult(ActionResult.Fail("Condition not met"));  // ← condition false
 }
-        
-        return Task.FromResult(ActionResult.Ok());
     }
     
     private bool EvaluateCondition(ScriptContext context)

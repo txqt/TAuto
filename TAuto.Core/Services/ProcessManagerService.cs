@@ -47,9 +47,9 @@ public class ProcessManagerService : IDisposable
     }
 
     /// <summary>Path to the Worker executable.</summary>
-    public string WorkerExePath { get; set; }
+    public string WorkerExePath { get; set; } = string.Empty;
     /// <summary>Path to the VisionServer executable used by native bots.</summary>
-    public string VisionServerExePath { get; set; }
+    public string VisionServerExePath { get; set; } = string.Empty;
 
     /// <summary>Time to wait before restarting a crashed Worker.</summary>
     public int RestartDelayMs { get; set; } = AutomationDefaults.DefaultWorkerRestartDelayMs;
@@ -177,7 +177,7 @@ public class ProcessManagerService : IDisposable
             // Support starting a Native AOT bot directly
             if (isNativeBot)
             {
-                exePath = startupArgs.NativeExePath;
+                exePath = startupArgs.NativeExePath ?? WorkerExePath;
                 _logger?.LogInformation($"Native AOT Executable detected: Overriding worker EXE to '{exePath}'");
 
                 startupArgs.VisionPipeName = $"AutoBot_Vision_{workerId}_{Guid.NewGuid():N}";
@@ -273,7 +273,7 @@ public class ProcessManagerService : IDisposable
         process.BeginErrorReadLine();
 
         // Break closure capture of large startupArgs object
-        string capturedBotDllPath = startupArgs.BotDllPath;
+        string? capturedBotDllPath = startupArgs.BotDllPath;
         var capturedStartupArgs = startupArgs;
 
         // FIX-3: Attach Process Monitors Immediately
@@ -361,9 +361,11 @@ public class ProcessManagerService : IDisposable
                     {
                         try
                         {
-                            string botDir = File.Exists(capturedBotDllPath) 
-                                ? Path.GetDirectoryName(capturedBotDllPath)! 
-                                : capturedBotDllPath;
+                            string botDll = capturedBotDllPath ?? string.Empty;
+                            string botDir = File.Exists(botDll) 
+                                ? (Path.GetDirectoryName(botDll) ?? botDll)
+                                : botDll;
+                            
                             if (OnAutoRestartRequested != null)
                             {
                                 await OnAutoRestartRequested(capturedStartupArgs, botDir);

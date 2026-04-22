@@ -50,14 +50,14 @@ public class DefaultVisionHelper : IVisionHelper
         if (Context.LastScreenCapture == null) return null;
 
         string? baseDir = Context.GetString("BaseDirectory");
-        var template = Context.Vision.LoadTemplate(templatePath, baseDir);
+        var template = await Context.Vision.LoadTemplateAsync(templatePath, baseDir);
         if (template == null)
         {
             Logger?.LogWarning($"Warning: Template not found at path '{templatePath}'");
             return null;
         }
 
-        var result = Context.Vision.FindTemplate(Context.LastScreenCapture, template, threshold);
+        var result = await Context.Vision.FindTemplateAsync(Context.LastScreenCapture, template, threshold);
         
         if (result.Found)
         {
@@ -106,7 +106,7 @@ public class DefaultVisionHelper : IVisionHelper
 
         if (Context.LastScreenCapture == null) return null;
 
-        var result = Context.Vision.FindColor(Context.LastScreenCapture, new ColorSearchOptions
+        var result = await Context.Vision.FindColorAsync(Context.LastScreenCapture, new ColorSearchOptions
         {
             TargetColor = color,
             Tolerance = tolerance,
@@ -136,7 +136,7 @@ public class DefaultVisionHelper : IVisionHelper
         return false;
     }
 
-    public TemplateMatchResult[] FindTemplates(IImage source,
+    public async Task<TemplateMatchResult[]> FindTemplatesAsync(IImage source,
         (IImage Template, string? Path, double Threshold)[] templates,
         Rectangle? roi = null,
         Rectangle[]? regions = null,
@@ -144,6 +144,6 @@ public class DefaultVisionHelper : IVisionHelper
         bool disableMultiScale = false)
     {
         CheckCancelled();
-        return Context.Vision.FindTemplates(source, templates, roi, regions, fallbackFullscreen, disableMultiScale);
+        return await Context.Vision.FindTemplatesAsync(source, templates, roi, regions, fallbackFullscreen, disableMultiScale);
     }
 }

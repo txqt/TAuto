@@ -21,8 +21,9 @@ public interface IOcrService
     /// <param name="invert">Invert colors before threshold.</param>
     /// <param name="borderSize">Border pixels around text.</param>
     /// <param name="pageSegMode">Tesseract PSM: 3=auto, 7=single line, 8=single word, 13=raw line.</param>
+    /// <param name="ct">Cancellation token.</param>
     /// <returns>Extracted text string.</returns>
-    string GetText(IImage image, string language = "eng", double scale = 1.0, string whitelist = null, int threshold = 0, bool invert = false, int borderSize = 0, int pageSegMode = 3);
+    Task<string> GetTextAsync(IImage image, string language = "eng", double scale = 1.0, string? whitelist = null, int threshold = 0, bool invert = false, int borderSize = 0, int pageSegMode = 3, CancellationToken ct = default);
 
     /// <summary>
     /// Extract text blocks with their bounding boxes.
@@ -35,20 +36,21 @@ public interface IOcrService
     /// <param name="invert">Invert colors before threshold.</param>
     /// <param name="borderSize">Border pixels around text.</param>
     /// <param name="pageSegMode">Tesseract PSM: 3=auto, 7=single line, 8=single word, 13=raw line.</param>
+    /// <param name="ct">Cancellation token.</param>
     /// <returns>List of detected text blocks.</returns>
-    List<OcrResultBlock> GetTextBlocks(IImage image, string language = "eng", double scale = 1.0, string whitelist = null, int threshold = 0, bool invert = false, int borderSize = 0, int pageSegMode = 3);
+    Task<List<OcrResultBlock>> GetTextBlocksAsync(IImage image, string language = "eng", double scale = 1.0, string? whitelist = null, int threshold = 0, bool invert = false, int borderSize = 0, int pageSegMode = 3, CancellationToken ct = default);
 
     /// <summary>
     /// Multi-threshold voting OCR: run at 3 thresholds, pick majority result.
     /// </summary>
-    string GetTextWithVoting(IImage image, string language = "eng", double scale = 1.0,
-        string whitelist = null, int baseThreshold = 150, bool invert = false, int borderSize = 12, int pageSegMode = 7);
+    Task<string> GetTextWithVotingAsync(IImage image, string language = "eng", double scale = 1.0,
+        string? whitelist = null, int baseThreshold = 150, bool invert = false, int borderSize = 12, int pageSegMode = 7, CancellationToken ct = default);
 
     /// <summary>
     /// Segmentation-aware OCR: split merged digits using contour analysis, then OCR.
     /// </summary>
-    string GetTextWithSegmentation(IImage image, string language = "eng", double scale = 1.0,
-        string whitelist = null, int threshold = 150, bool invert = false, int borderSize = 12, int pageSegMode = 7);
+    Task<string> GetTextWithSegmentationAsync(IImage image, string language = "eng", double scale = 1.0,
+        string? whitelist = null, int threshold = 150, bool invert = false, int borderSize = 12, int pageSegMode = 7, CancellationToken ct = default);
 }
 
 public class OcrResultBlock

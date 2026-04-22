@@ -48,7 +48,7 @@ public class DefaultStateMachineExecutor : IStateMachineExecutor
 
             if (fsm.EvaluateGlobalsBeforeEntry)
             {
-                var globalWinner = await evaluator.EvaluateAsync(_sortedGlobalTransitions, context, ct);
+                var globalWinner = await evaluator.EvaluateAsync(_sortedGlobalTransitions ?? Array.Empty<StateTransition>(), context, ct);
                 if (globalWinner != null)
                 {
                     var gtResult = await ExecuteTransitionAsync(fsm, globalWinner, _currentState, context, variableStore, stateStartTime, 0, ct);

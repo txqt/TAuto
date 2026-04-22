@@ -22,5 +22,5 @@ public class ColorMatchResult
 
 public interface IColorDetector
 {
-    ColorMatchResult FindColor(IImage source, ColorSearchOptions options);
+    Task<ColorMatchResult> FindColorAsync(IImage source, ColorSearchOptions options, CancellationToken ct = default);
 }

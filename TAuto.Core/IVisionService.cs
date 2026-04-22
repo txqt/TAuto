@@ -10,17 +10,18 @@ public interface ITemplateMatcher
     /// <summary>
     /// Find template image within source using template matching
     /// </summary>
-    TemplateMatchResult FindTemplate(IImage source, IImage template, double threshold, string? templatePath = null, System.Drawing.Rectangle? roi = null, bool disableMultiScale = false);
+    Task<TemplateMatchResult> FindTemplateAsync(IImage source, IImage template, double threshold, string? templatePath = null, System.Drawing.Rectangle? roi = null, bool disableMultiScale = false, CancellationToken ct = default);
 
     /// <summary>
     /// Find multiple templates against the same source frame with optional ROIs and fallback.
     /// </summary>
-    TemplateMatchResult[] FindTemplates(IImage source, 
+    Task<TemplateMatchResult[]> FindTemplatesAsync(IImage source, 
         (IImage Template, string? Path, double Threshold)[] templates, 
         System.Drawing.Rectangle? roi = null, 
         System.Drawing.Rectangle[]? regions = null, 
         bool fallbackFullscreen = false,
-        bool disableMultiScale = false);
+        bool disableMultiScale = false,
+        CancellationToken ct = default);
 }
 
 /// <summary>
@@ -31,27 +32,27 @@ public interface ITemplateRepository
     /// <summary>
     /// Load template from file path
     /// </summary>
-    IImage? LoadTemplate(string path, string? baseDirectory = null);
+    Task<IImage?> LoadTemplateAsync(string path, string? baseDirectory = null, CancellationToken ct = default);
     
     /// <summary>
     /// Save image as template
     /// </summary>
-    string SaveTemplate(IImage image, string name);
+    Task<string> SaveTemplateAsync(IImage image, string name, CancellationToken ct = default);
     
     /// <summary>
     /// Get all available templates
     /// </summary>
-    string[] GetSavedTemplates();
+    Task<string[]> GetSavedTemplatesAsync(CancellationToken ct = default);
     
     /// <summary>
     /// Delete template by path
     /// </summary>
-    bool DeleteTemplate(string path);
+    Task<bool> DeleteTemplateAsync(string path, CancellationToken ct = default);
 
     /// <summary>
     /// Preloads templates into memory to avoid I/O delays during execution
     /// </summary>
-    void PreloadTemplates(IEnumerable<string> paths, string? baseDirectory = null);
+    Task PreloadTemplatesAsync(IEnumerable<string> paths, string? baseDirectory = null, CancellationToken ct = default);
 }
 
 /// <summary>

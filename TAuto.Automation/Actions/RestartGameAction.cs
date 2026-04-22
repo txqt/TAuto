@@ -236,7 +236,7 @@ public class RestartGameAction : ActionBase
             context.Logger?.Info($"[RestartGame] Waiting for ready template '{ReadyTemplatePath}' (timeout: {ReadyTimeoutMs}ms)...");
 
             string? baseDir = context.GetString("BaseDirectory");
-            IImage? readyTemplate = context.Vision.LoadTemplate(ReadyTemplatePath, baseDir);
+            IImage? readyTemplate = await context.Vision.LoadTemplateAsync(ReadyTemplatePath, baseDir, ct);
             if (readyTemplate == null)
             {
                 context.Logger?.Warning($"[RestartGame] Could not load ready template: {ReadyTemplatePath}, proceeding anyway");
@@ -253,7 +253,7 @@ public class RestartGameAction : ActionBase
                     await context.UpdateScreenCaptureAsync(force: true);
                     if (context.LastScreenCapture != null)
                     {
-                        var match = context.Vision.FindTemplate(
+                        var match = await context.Vision.FindTemplateAsync(
                             context.LastScreenCapture, readyTemplate, ReadyThreshold, ReadyTemplatePath);
 
                         if (match.Found)

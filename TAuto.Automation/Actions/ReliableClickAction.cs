@@ -158,13 +158,13 @@ public class ReliableClickAction : ActionBase
         if (string.IsNullOrEmpty(TemplatePath)) return ActionResult.Fail("Template path not set");
 
         string? baseDir = context.GetString("BaseDirectory");
-        IImage? template = context.Vision.LoadTemplate(TemplatePath, baseDir);
+        IImage? template = await context.Vision.LoadTemplateAsync(TemplatePath, baseDir, ct);
         if (template == null) return ActionResult.Fail($"Cannot load template: {TemplatePath}");
 
         IImage? confirmTemplate = null;
         if (Confirm == ConfirmMode.WaitForNext && !string.IsNullOrEmpty(ConfirmTemplatePath))
         {
-            confirmTemplate = context.Vision.LoadTemplate(ConfirmTemplatePath, baseDir);
+            confirmTemplate = await context.Vision.LoadTemplateAsync(ConfirmTemplatePath, baseDir, ct);
             if (confirmTemplate == null) return ActionResult.Fail($"Cannot load confirm template: {ConfirmTemplatePath}");
         }
 
@@ -184,7 +184,7 @@ public class ReliableClickAction : ActionBase
                 await context.UpdateScreenCaptureAsync(force: true);
                 if (context.LastScreenCapture == null) return ActionResult.Fail("Cannot capture screen");
 
-                var result = context.Vision.FindTemplate(context.LastScreenCapture, template, Threshold, TemplatePath);
+                var result = await context.Vision.FindTemplateAsync(context.LastScreenCapture, template, Threshold, TemplatePath);
                 if (result.Found) match = result;
 
                 isConfirmed = confirmation.RecordResult(result.Found);
@@ -242,13 +242,13 @@ public class ReliableClickAction : ActionBase
             if (Confirm == ConfirmMode.WaitForGone)
             {
                 // Success = clicked image is NO LONGER visible
-                var result = context.Vision.FindTemplate(context.LastScreenCapture, clickedTemplate, Threshold, TemplatePath);
+                var result = await context.Vision.FindTemplateAsync(context.LastScreenCapture, clickedTemplate, Threshold, TemplatePath);
                 if (!result.Found) return true;
             }
             else if (Confirm == ConfirmMode.WaitForNext && nextTemplate != null)
             {
                 // Success = confirm image IS NOW visible
-                var result = context.Vision.FindTemplate(context.LastScreenCapture, nextTemplate, Threshold, ConfirmTemplatePath);
+                var result = await context.Vision.FindTemplateAsync(context.LastScreenCapture, nextTemplate, Threshold, ConfirmTemplatePath);
                 if (result.Found)
                 {
                     context.LastFoundImageLocation = result.CenterLocation;
