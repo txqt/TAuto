@@ -131,6 +131,53 @@ public class ProcessManagerService : IDisposable
         
         startupArgs.WorkerId = workerId;
 
+        // --- Persistence Logic: Check if we can reuse an existing alive worker ---
+        if (_workers.TryGetValue(workerId, out var existingWorker) && existingWorker.Process is { HasExited: false })
+        {
+            bool folderMatches = existingWorker.StartupArgs.BaseDirectory == botFolder;
+            bool exeMatches = existingWorker.StartupArgs.NativeExePath == startupArgs.NativeExePath;
+            
+            if (folderMatches && exeMatches)
+            {
+                _logger?.LogInformation($"Reusing existing worker process '{workerId}' (PID: {existingWorker.Process.Id})");
+                
+                // Handle VisionServer for Native AOT bots if needed
+                bool isNativeBotReuse = !string.IsNullOrEmpty(startupArgs.NativeExePath) && 
+                                  startupArgs.NativeExePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && 
+                                  File.Exists(startupArgs.NativeExePath);
+                                  
+                if (isNativeBotReuse)
+                {
+                    // Kill old vision server to ensure clean state for the next run
+                    if (existingWorker.VisionProcess is { HasExited: false })
+                    {
+                        try { _processSpawner.KillProcess(existingWorker.VisionProcess); } catch { }
+                        try { existingWorker.VisionProcess.Dispose(); } catch { }
+                    }
+                    
+                    startupArgs.VisionPipeName = $"AutoBot_Vision_{workerId}_{Guid.NewGuid():N}";
+                    existingWorker.VisionProcess = StartVisionServerProcess(startupArgs.VisionPipeName);
+                    if (existingWorker is WorkerProcess wp) AttachVisionHandlers(workerId, wp);
+                }
+                
+                // Update tracking object with new args
+                if (existingWorker is WorkerProcess wpTrack) wpTrack.StartupArgs = startupArgs;
+                
+                // Send START command via IPC
+                var reuseStartMsg = IpcMessage.Create(IpcMessageTypes.Start, startupArgs);
+                await existingWorker.Writer.WriteLineAsync(reuseStartMsg.ToJson());
+                
+                OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Starting);
+                return workerId;
+            }
+            else
+            {
+                _logger?.LogInformation($"Worker '{workerId}' reuse skipped: package folder or executable changed. Killing old process.");
+                try { _processSpawner.KillProcess(existingWorker.Process); } catch { }
+                await RemoveWorkerAsync(workerId, existingWorker);
+            }
+        }
+
         // P3 (Audit): Compute expected payload checksum before sending args
         if (!string.IsNullOrEmpty(startupArgs.BotDllPath) && File.Exists(startupArgs.BotDllPath))
         {
@@ -213,64 +260,10 @@ public class ProcessManagerService : IDisposable
         // 3. Attach Event Handlers (Stored in WorkerProcess to allow clean unsubscription)
         if (isNativeBot && visionProcess != null)
         {
-            worker.VisionOutputHandler = (_, e) =>
-            {
-                if (!string.IsNullOrWhiteSpace(e.Data))
-                {
-                    OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
-                    {
-                        WorkerId = workerId,
-                        Level = "INFO",
-                        Message = $"[VISION-OUT] {e.Data}"
-                    });
-                }
-            };
-            worker.VisionErrorHandler = (_, e) =>
-            {
-                if (!string.IsNullOrWhiteSpace(e.Data))
-                {
-                    OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
-                    {
-                        WorkerId = workerId,
-                        Level = "ERROR",
-                        Message = $"[VISION-ERR] {e.Data}"
-                    });
-                }
-            };
-            visionProcess.OutputDataReceived += worker.VisionOutputHandler;
-            visionProcess.ErrorDataReceived += worker.VisionErrorHandler;
-            visionProcess.BeginOutputReadLine();
-            visionProcess.BeginErrorReadLine();
+            AttachVisionHandlers(workerId, worker);
         }
 
-        worker.OutputHandler = (_, e) =>
-        {
-            if (!string.IsNullOrWhiteSpace(e.Data))
-            {
-                OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
-                {
-                    WorkerId = workerId,
-                    Level = "INFO",
-                    Message = $"[PROC-OUT] {e.Data}"
-                });
-            }
-        };
-        worker.ErrorHandler = (_, e) =>
-        {
-            if (!string.IsNullOrWhiteSpace(e.Data))
-            {
-                OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
-                {
-                    WorkerId = workerId,
-                    Level = "ERROR",
-                    Message = $"[PROC-ERR] {e.Data}"
-                });
-            }
-        };
-        process.OutputDataReceived += worker.OutputHandler;
-        process.ErrorDataReceived += worker.ErrorHandler;
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
+        AttachWorkerHandlers(workerId, worker);
 
         // Break closure capture of large startupArgs object
         string? capturedBotDllPath = startupArgs.BotDllPath;
@@ -847,6 +840,72 @@ public class ProcessManagerService : IDisposable
         var workingDirectory = Path.GetDirectoryName(VisionServerExePath) ?? AppDomain.CurrentDomain.BaseDirectory;
         _logger?.LogInformation("Starting VisionServer with pipe '{PipeName}'", visionPipeName);
         return _processSpawner.SpawnWorkerProcess(VisionServerExePath, $"--pipe {visionPipeName}", workingDirectory);
+    }
+
+    private void AttachWorkerHandlers(string workerId, WorkerProcess worker)
+    {
+        worker.OutputHandler = (_, e) =>
+        {
+            if (!string.IsNullOrWhiteSpace(e.Data))
+            {
+                OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+                {
+                    WorkerId = workerId,
+                    Level = "INFO",
+                    Message = $"[PROC-OUT] {e.Data}"
+                });
+            }
+        };
+        worker.ErrorHandler = (_, e) =>
+        {
+            if (!string.IsNullOrWhiteSpace(e.Data))
+            {
+                OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+                {
+                    WorkerId = workerId,
+                    Level = "ERROR",
+                    Message = $"[PROC-ERR] {e.Data}"
+                });
+            }
+        };
+        worker.Process.OutputDataReceived += worker.OutputHandler;
+        worker.Process.ErrorDataReceived += worker.ErrorHandler;
+        worker.Process.BeginOutputReadLine();
+        worker.Process.BeginErrorReadLine();
+    }
+
+    private void AttachVisionHandlers(string workerId, WorkerProcess worker)
+    {
+        if (worker.VisionProcess == null) return;
+
+        worker.VisionOutputHandler = (_, e) =>
+        {
+            if (!string.IsNullOrWhiteSpace(e.Data))
+            {
+                OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+                {
+                    WorkerId = workerId,
+                    Level = "INFO",
+                    Message = $"[VISION-OUT] {e.Data}"
+                });
+            }
+        };
+        worker.VisionErrorHandler = (_, e) =>
+        {
+            if (!string.IsNullOrWhiteSpace(e.Data))
+            {
+                OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+                {
+                    WorkerId = workerId,
+                    Level = "ERROR",
+                    Message = $"[VISION-ERR] {e.Data}"
+                });
+            }
+        };
+        worker.VisionProcess.OutputDataReceived += worker.VisionOutputHandler;
+        worker.VisionProcess.ErrorDataReceived += worker.VisionErrorHandler;
+        worker.VisionProcess.BeginOutputReadLine();
+        worker.VisionProcess.BeginErrorReadLine();
     }
 
     public void ClearCrashHistory(string workerId)
