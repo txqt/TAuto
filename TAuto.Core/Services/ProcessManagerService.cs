@@ -643,54 +643,39 @@ public class ProcessManagerService : IDisposable
         }
     }
 
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _writeLocks = new();
+
 
     /// <summary>
     /// Send an IPC message to a specific running worker.
-    /// Returns true if the message was written to the pipe successfully.
+    /// Returns true if the message was successfully queued in the bounded channel.
     /// </summary>
-    public async Task<bool> SendMessageToWorkerAsync(string workerId, IpcMessage message)
+    public Task<bool> SendMessageToWorkerAsync(string workerId, IpcMessage message)
     {
         if (!_workers.TryGetValue(workerId, out var worker))
         {
             _logger?.LogWarning("SendMessageToWorkerAsync: Worker '{WorkerId}' not found.", workerId);
-            return false;
+            return Task.FromResult(false);
         }
 
-        if (worker.Writer == null)
-        {
-            _logger?.LogWarning("SendMessageToWorkerAsync: Worker '{WorkerId}' has no pipe writer.", workerId);
-            return false;
-        }
-
-        var writeLock = _writeLocks.GetOrAdd(workerId, _ => new SemaphoreSlim(1, 1));
-        if (!await writeLock.WaitAsync(TimeSpan.FromSeconds(3)))
-        {
-            _logger?.LogError("SendMessageToWorkerAsync: Timeout acquiring IPC write lock for '{WorkerId}'. Server IPC is suspended.", workerId);
-            _ = RemoveWorkerAsync(workerId);
-            return false;
-        }
-
+        // Use the bounded channel for non-blocking enqueue.
+        // This ensures the manager thread never blocks if the pipe buffer is full.
         try
         {
-            // P2 (Audit): Enforce 3s write timeout natively using .NET 8 WaitAsync
-            await worker.Writer.WriteLineAsync(message.ToJson()).WaitAsync(TimeSpan.FromSeconds(3));
-            return true;
-        }
-        catch (TimeoutException)
-        {
-            _logger?.LogError("SendMessageToWorkerAsync: Pipe write operation timed out for '{WorkerId}'. Disconnecting.", workerId);
-            _ = RemoveWorkerAsync(workerId);
-            return false;
+            // P2 (Audit): WriteAsync respects the bounded capacity (1024) but avoids blocking the thread pool
+            // if we use a short timeout or just TryWrite. Given the 1024 capacity, TryWrite is safer for 
+            // massive bursts, but WriteAsync is better for ensuring delivery under moderate pressure.
+            // We use TryWrite here to strictly guarantee non-blocking behavior for the caller.
+            bool queued = worker.MessageChannel.Writer.TryWrite(message.ToJson());
+            if (!queued)
+            {
+                _logger?.LogWarning("SendMessageToWorkerAsync: Message queue full for '{WorkerId}'. Message dropped.", workerId);
+            }
+            return Task.FromResult(queued);
         }
         catch (Exception ex)
         {
-            _logger?.LogError("SendMessageToWorkerAsync: Failed to send to '{WorkerId}': {Error}", workerId, ex.Message);
-            return false;
-        }
-        finally
-        {
-            try { writeLock?.Release(); } catch (ObjectDisposedException) { }
+            _logger?.LogError("SendMessageToWorkerAsync: Failed to queue message for '{WorkerId}': {Error}", workerId, ex.Message);
+            return Task.FromResult(false);
         }
     }
 
@@ -930,11 +915,14 @@ public class ProcessManagerService : IDisposable
                 {
                     try
                     {
-                        await worker.Writer.WriteLineAsync(message);
+                        // Use a short timeout for the actual pipe write to prevent the background task 
+                        // from hanging indefinitely if the worker process is semi-dead.
+                        await worker.Writer.WriteLineAsync(message).WaitAsync(TimeSpan.FromSeconds(5), worker.Cts.Token);
                     }
                     catch (Exception ex)
                     {
-                        _logger?.LogError($"Error writing to worker '{worker.WorkerId}' pipe: {ex.Message}");
+                        _logger?.LogError($"Error writing to worker '{worker.WorkerId}' pipe: {ex.Message}. Disconnecting.");
+                        _ = RemoveWorkerAsync(worker.WorkerId);
                         return;
                     }
                 }
@@ -944,6 +932,7 @@ public class ProcessManagerService : IDisposable
         catch (Exception ex)
         {
             _logger?.LogError($"Writer loop error for '{worker.WorkerId}': {ex.Message}");
+            _ = RemoveWorkerAsync(worker.WorkerId);
         }
     }
 

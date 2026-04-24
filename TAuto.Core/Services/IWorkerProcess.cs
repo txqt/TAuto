@@ -49,8 +49,9 @@ public class WorkerProcess : IWorkerProcess
     public DateTime StartTimeUtc { get; set; }
     public bool IsInitialized { get; set; } = false;
 
-    public Channel<string> MessageChannel { get; } = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
+    public Channel<string> MessageChannel { get; } = Channel.CreateBounded<string>(new BoundedChannelOptions(1024)
     {
+        FullMode = BoundedChannelFullMode.Wait,
         SingleReader = true,
         SingleWriter = false
     });
