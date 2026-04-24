@@ -165,7 +165,7 @@ public class ProcessManagerService : IDisposable
                 
                 // Send START command via IPC
                 var reuseStartMsg = IpcMessage.Create(IpcMessageTypes.Start, startupArgs);
-                await existingWorker.Writer.WriteLineAsync(reuseStartMsg.ToJson());
+                existingWorker.MessageChannel.Writer.TryWrite(reuseStartMsg.ToJson());
                 
                 OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Starting);
                 return workerId;
@@ -444,7 +444,15 @@ public class ProcessManagerService : IDisposable
                 while (!readyCts.IsCancellationRequested)
                 {
                     var readyLine = await worker.Reader.ReadLineAsync(readyCts.Token);
-                    var readyMsg = IpcMessage.FromJson(readyLine ?? "");
+                    
+                    // AUDIT FIX: Check for EOF (worker crashed during startup)
+                    if (readyLine == null)
+                    {
+                        _logger?.LogWarning($"Worker '{workerId}' pipe closed before sending Ready.");
+                        break;
+                    }
+
+                    var readyMsg = IpcMessage.FromJson(readyLine);
 
                     if (readyMsg?.Type == IpcMessageTypes.Ready)
                     {
@@ -470,17 +478,11 @@ public class ProcessManagerService : IDisposable
             }
         }
 
-        // 6. Send start command
+        // 6. Start Writer Loop and Send start command
+        worker.WriterTask = Task.Run(() => ProcessWriterLoopAsync(worker), worker.Cts.Token);
+
         var startMsg = IpcMessage.Create(IpcMessageTypes.Start, startupArgs);
-        var writeStartTask = worker.Writer.WriteLineAsync(startMsg.ToJson());
-        try
-        {
-            await writeStartTask.WaitAsync(TimeSpan.FromMilliseconds(2000));
-        }
-        catch (TimeoutException)
-        {
-            _logger?.LogWarning($"StartWorkerAsync: WriteLineAsync timed out for '{workerId}'. Continuing anyway.");
-        }
+        worker.MessageChannel.Writer.TryWrite(startMsg.ToJson());
 
         worker.IsInitialized = true;
 
@@ -554,15 +556,7 @@ public class ProcessManagerService : IDisposable
             try
             {
                 var stopMsg = IpcMessage.Create(IpcMessageTypes.Stop);
-                var writeTask = worker.Writer.WriteLineAsync(stopMsg.ToJson());
-                try
-                {
-                    await writeTask.WaitAsync(TimeSpan.FromMilliseconds(2000));
-                }
-                catch (TimeoutException)
-                {
-                    _logger?.LogWarning($"StopWorkerAsync: WriteLineAsync timed out for '{workerId}'.");
-                }
+                worker.MessageChannel.Writer.TryWrite(stopMsg.ToJson());
 
                 // AUDIT FIX (CORRECTION-5): Use async WaitForExitAsync instead of blocking WaitForExit
                 bool exited;
@@ -756,7 +750,7 @@ public class ProcessManagerService : IDisposable
 
 
 
-    private Task RemoveWorkerAsync(string workerId, IWorkerProcess? expectedWorker = null)
+    private async Task RemoveWorkerAsync(string workerId, IWorkerProcess? expectedWorker = null)
     {
         bool isCurrentWorker = true;
         
@@ -799,6 +793,14 @@ public class ProcessManagerService : IDisposable
             }
 
             workerToClean.Cts?.Cancel();
+            
+            // AUDIT FIX: Gracefully complete the message channel and wait for the writer task
+            workerToClean.MessageChannel?.Writer.TryComplete();
+            if (workerToClean.WriterTask != null)
+            {
+                try { await workerToClean.WriterTask.WaitAsync(TimeSpan.FromMilliseconds(500)); } catch { }
+            }
+
             try { workerToClean.Cts?.Dispose(); } catch { }
             try { workerToClean.Writer?.Dispose(); } catch { }
             try { workerToClean.Reader?.Dispose(); } catch { }
@@ -825,11 +827,11 @@ public class ProcessManagerService : IDisposable
             _heartbeatMonitor.Clear(workerId);
             _logStreamer.CloseWriter(workerId);
             
-            if (_workerLocks.TryRemove(workerId, out var workerLock)) workerLock.Dispose();
-            if (_writeLocks.TryRemove(workerId, out var writeLock)) writeLock.Dispose();
+            // AUDIT FIX: Stop disposing locks to avoid ObjectDisposedException in finally blocks
+            _workerLocks.TryRemove(workerId, out _);
         }
 
-        return Task.CompletedTask;
+        // Method end
     }
 
     private Process StartVisionServerProcess(string visionPipeName)
@@ -918,6 +920,33 @@ public class ProcessManagerService : IDisposable
     /// Called by WorkerOrchestrator.ClearAsync to prevent a pending auto-restart
     /// continuation from spawning an orphan worker after the slot is cleared.
     /// </summary>
+    private async Task ProcessWriterLoopAsync(IWorkerProcess worker)
+    {
+        try
+        {
+            while (await worker.MessageChannel.Reader.WaitToReadAsync(worker.Cts.Token))
+            {
+                while (worker.MessageChannel.Reader.TryRead(out var message))
+                {
+                    try
+                    {
+                        await worker.Writer.WriteLineAsync(message);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError($"Error writing to worker '{worker.WorkerId}' pipe: {ex.Message}");
+                        return;
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _logger?.LogError($"Writer loop error for '{worker.WorkerId}': {ex.Message}");
+        }
+    }
+
     public void MarkIntentionalStop(string workerId)
     {
         _intentionalStops.TryAdd(workerId, "cleared");
