@@ -22,7 +22,7 @@ public static class BotProfileSerializer
     public static string Serialize(BotProfile profile)
     {
         ArgumentNullException.ThrowIfNull(profile);
-        return JsonSerializer.Serialize(profile, Options);
+        return JsonSerializer.Serialize(profile, AutomationJsonContext.Default.BotProfile);
     }
 
     public static BotProfile? Deserialize(string json)
@@ -32,7 +32,7 @@ public static class BotProfileSerializer
             return null;
         }
 
-        var profile = JsonSerializer.Deserialize<BotProfile>(json, Options);
+        var profile = JsonSerializer.Deserialize(json, AutomationJsonContext.Default.BotProfile);
         if (profile == null)
         {
             return null;

@@ -1,10 +1,11 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq;
 using TAuto.Core.Models;
+using TAuto.Automation.Models;
 
 namespace TAuto.Automation.Services;
 
@@ -25,7 +26,7 @@ public class SessionManager
         if (session == null) return;
         
         string filePath = Path.Combine(_sessionDir, $"{session.SessionId}.json");
-        string json = JsonSerializer.Serialize(session, new JsonSerializerOptions { WriteIndented = true });
+        string json = JsonSerializer.Serialize(session, AutomationJsonContext.Default.SessionState);
         
         await File.WriteAllTextAsync(filePath, json);
     }
@@ -38,7 +39,7 @@ public class SessionManager
         try
         {
             string json = await File.ReadAllTextAsync(filePath);
-            return JsonSerializer.Deserialize<SessionState>(json);
+            return JsonSerializer.Deserialize(json, AutomationJsonContext.Default.SessionState);
         }
         catch 
         {
@@ -62,7 +63,7 @@ public class SessionManager
             try
             {
                 string json = File.ReadAllText(file);
-                var session = JsonSerializer.Deserialize<SessionState>(json);
+                var session = JsonSerializer.Deserialize(json, AutomationJsonContext.Default.SessionState);
                 if (session != null) sessions.Add(session);
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[SessionManager] Failed to load session: {ex.Message}"); }

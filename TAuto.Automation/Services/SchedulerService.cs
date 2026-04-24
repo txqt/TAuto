@@ -1,10 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TAuto.Core.Models;
 using TAuto.Core;
+using TAuto.Automation.Models;
 
 namespace TAuto.Automation.Services;
 
@@ -70,7 +71,7 @@ public class SchedulerService : IDisposable
             string path = System.IO.Path.Combine(appData, "AutoBot", "jobs.json");
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
             
-            string json = System.Text.Json.JsonSerializer.Serialize(_jobs, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            string json = System.Text.Json.JsonSerializer.Serialize(_jobs, AutomationJsonContext.Default.ListScheduledJob);
             System.IO.File.WriteAllText(path, json);
         }
         catch (Exception ex) { Log($"Failed to save jobs: {ex.Message}"); }
@@ -86,7 +87,7 @@ public class SchedulerService : IDisposable
             if (System.IO.File.Exists(path))
             {
                 string json = System.IO.File.ReadAllText(path);
-                var jobs = System.Text.Json.JsonSerializer.Deserialize<List<ScheduledJob>>(json);
+                var jobs = System.Text.Json.JsonSerializer.Deserialize(json, AutomationJsonContext.Default.ListScheduledJob);
                 if (jobs != null)
                 {
                     _jobs.Clear();

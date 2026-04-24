@@ -67,37 +67,37 @@ public sealed class ActionJsonConverter : JsonConverter<IAction>
             throw new JsonException($"Unknown action type '{typeName}'.");
         }
 
-        var innerOptions = CreateInnerOptions(options);
-        return (IAction?)JsonSerializer.Deserialize(root.GetRawText(), actionType, innerOptions);
+        // Use source-generated TypeInfo for AOT safety
+        var typeInfo = AutomationJsonContext.Default.GetTypeInfo(actionType);
+        if (typeInfo == null)
+        {
+            throw new JsonException($"Missing AOT metadata for action type '{actionType.Name}'.");
+        }
+
+        return (IAction?)JsonSerializer.Deserialize(root.GetRawText(), typeInfo);
     }
 
     public override void Write(Utf8JsonWriter writer, IAction value, JsonSerializerOptions options)
     {
         var actionType = value.GetType();
-        var innerOptions = CreateInnerOptions(options);
-        var serialized = JsonSerializer.SerializeToElement(value, actionType, innerOptions);
+        
+        // Use source-generated TypeInfo for AOT safety
+        var typeInfo = AutomationJsonContext.Default.GetTypeInfo(actionType);
+        if (typeInfo == null)
+        {
+            throw new JsonException($"Missing AOT metadata for action type '{actionType.Name}'.");
+        }
+
+        var serialized = JsonSerializer.SerializeToElement(value, typeInfo);
 
         writer.WriteStartObject();
         var identifier = _reverseTypeMap.TryGetValue(actionType, out var id) ? id : (actionType.FullName ?? actionType.Name);
         writer.WriteString(TypePropertyName, identifier);
         foreach (var property in serialized.EnumerateObject())
         {
+            if (property.NameEquals(TypePropertyName)) continue; // Skip if already present
             property.WriteTo(writer);
         }
         writer.WriteEndObject();
-    }
-
-    private static JsonSerializerOptions CreateInnerOptions(JsonSerializerOptions options)
-    {
-        var clone = new JsonSerializerOptions(options);
-        for (var i = clone.Converters.Count - 1; i >= 0; i--)
-        {
-            if (clone.Converters[i] is ActionJsonConverter)
-            {
-                clone.Converters.RemoveAt(i);
-            }
-        }
-
-        return clone;
     }
 }
