@@ -1,4 +1,4 @@
-ï»¿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 using TAuto.Core;
 
 namespace TAuto.Automation.StateMachine;
@@ -67,7 +67,7 @@ public class StateTransition
     public bool IsFallback { get; set; } = false;
 
     /// <summary>
-    /// Probability (0.0â€“1.0) that this transition fires when its condition matches.
+    /// Probability (0.0–1.0) that this transition fires when its condition matches.
     /// 1.0 = always fire (deterministic, default). 0.7 = 70% chance, 30% falls through.
     /// </summary>
     public double Probability { get; set; } = 1.0;
@@ -105,7 +105,7 @@ public class StateTransition
             var roll = Random.Shared.NextDouble();
             if (roll >= Probability)
             {
-                // Roll failed â€” this transition does NOT fire.
+                // Roll failed — this transition does NOT fire.
                 System.Diagnostics.Debug.WriteLine($"[StateTransition] Probability roll FAILED: roll={roll:F3}, threshold={Probability:F3}. Target='{ToState}'.");
                 return false;
             }

@@ -1,4 +1,4 @@
-﻿using TAuto.Core;
+using TAuto.Core;
 
 namespace TAuto.Automation.StateMachine;
 

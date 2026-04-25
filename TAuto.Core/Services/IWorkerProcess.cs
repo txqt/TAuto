@@ -5,7 +5,7 @@ using System.IO.Pipes;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using AutoBot.Shared.Ipc;
+using TAuto.Shared.Ipc;
 
 namespace TAuto.Core.Services;
 

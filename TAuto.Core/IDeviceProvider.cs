@@ -1,4 +1,4 @@
-﻿using TAuto.Core.Imaging;
+using TAuto.Core.Imaging;
 
 namespace TAuto.Core;
 

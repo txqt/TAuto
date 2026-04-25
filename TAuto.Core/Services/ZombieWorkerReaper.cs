@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading;
 using Microsoft.Extensions.Logging;
-using AutoBot.Shared.Ipc;
+using TAuto.Shared.Ipc;
 
 namespace TAuto.Core.Services;
 

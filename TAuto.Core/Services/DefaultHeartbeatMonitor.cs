@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Concurrent;
-using AutoBot.Shared.Ipc;
+using TAuto.Shared.Ipc;
 
 namespace TAuto.Core.Services;
 

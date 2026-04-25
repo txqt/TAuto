@@ -1,4 +1,4 @@
-﻿namespace TAuto.Core;
+namespace TAuto.Core;
 
 /// <summary>
 /// Information about a connected device.

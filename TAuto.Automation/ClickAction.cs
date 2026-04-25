@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace TAuto.Automation;
 
@@ -119,23 +119,23 @@ public class ClickAction
         if (Type == ActionType.Swipe)
         {
             string name = string.IsNullOrEmpty(ActionName) 
-                ? $"Swipe ({X},{Y}) → ({EndX},{EndY})" 
+                ? $"Swipe ({X},{Y}) ? ({EndX},{EndY})" 
                 : ActionName;
-            return $"{Order + 1}. 👆 {name}";
+            return $"{Order + 1}. ?? {name}";
         }
         else if (Type == ActionType.ImageDetect)
         {
             string name = string.IsNullOrEmpty(TemplateName) 
                 ? "Find Image" 
                 : TemplateName;
-            return $"{Order + 1}. 🔍 {name} [{MatchThreshold:P0}]";
+            return $"{Order + 1}. ?? {name} [{MatchThreshold:P0}]";
         }
         else
         {
             string name = string.IsNullOrEmpty(ActionName) 
                 ? $"Tap ({X}, {Y})" 
                 : ActionName;
-            return $"{Order + 1}. 👇 {name} [{XPercent:F1}%, {YPercent:F1}%]";
+            return $"{Order + 1}. ?? {name} [{XPercent:F1}%, {YPercent:F1}%]";
         }
     }
 }

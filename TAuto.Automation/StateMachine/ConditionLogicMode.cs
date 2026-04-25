@@ -1,4 +1,4 @@
-﻿namespace TAuto.Automation.StateMachine;
+namespace TAuto.Automation.StateMachine;
 
 /// <summary>
 /// Logic mode for combining multiple conditions in a transition.

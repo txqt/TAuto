@@ -9,7 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using AutoBot.Shared.Ipc;
+using TAuto.Shared.Ipc;
 
 namespace TAuto.Core.Services;
 
@@ -92,9 +92,8 @@ public class ProcessManagerService : IDisposable
         OnWorkerHeartbeat += (workerId, hb) =>
             _heartbeatMonitor.RecordHeartbeat(workerId, hb);
 
-        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        WorkerExePath = Path.Combine(baseDir, "AutoBot.Worker.exe");
-        VisionServerExePath = Path.Combine(baseDir, "AutoBot.VisionServer.exe");
+        WorkerExePath = ResolveExePath("AutoBot.Worker.exe", "worker");
+        VisionServerExePath = ResolveExePath("AutoBot.VisionServer.exe", "vision");
 
         // FIX-1 (Audit): Heartbeat reaper — kills zombie workers with no heartbeat
         _zombieReaper = new ZombieWorkerReaper(_workers, _intentionalStops, _heartbeatMonitor, _processSpawner, _logger, (w, s) => OnWorkerStatusChanged?.Invoke(w, s));
@@ -967,5 +966,20 @@ public class ProcessManagerService : IDisposable
         _workers.Clear();
     }
 
+    private string ResolveExePath(string exeName, string subDir)
+    {
+        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        // 1. Try bin/subDir/exeName (SaaS Dist layout)
+        var saasPath = Path.Combine(baseDir, "bin", subDir, exeName);
+        if (File.Exists(saasPath)) return saasPath;
+
+        // 2. Try baseDir/exeName (Old layout / Debug layout)
+        var legacyPath = Path.Combine(baseDir, exeName);
+        if (File.Exists(legacyPath)) return legacyPath;
+
+        // Fallback to legacy path even if it doesn't exist yet (for assignment)
+        return legacyPath;
+    }
 
 }
+

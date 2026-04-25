@@ -1,5 +1,5 @@
 using System;
-using AutoBot.Shared.Ipc;
+using TAuto.Shared.Ipc;
 
 namespace TAuto.Core.Services;
 

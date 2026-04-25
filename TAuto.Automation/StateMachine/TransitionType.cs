@@ -1,4 +1,4 @@
-﻿namespace TAuto.Automation.StateMachine;
+namespace TAuto.Automation.StateMachine;
 
 /// <summary>
 /// Classifies how a transition is evaluated by the state machine runtime.

@@ -1,4 +1,4 @@
-﻿namespace TAuto.Automation.StateMachine;
+namespace TAuto.Automation.StateMachine;
 
 /// <summary>
 /// A single trace entry in the state machine execution log.
