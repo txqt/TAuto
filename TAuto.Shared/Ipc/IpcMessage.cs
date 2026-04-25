@@ -28,6 +28,9 @@ public class IpcMessage
     [JsonPropertyName("timestamp")]
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 
+    [JsonPropertyName("requestId")]
+    public string? RequestId { get; set; }
+
     /// <summary>
     /// Serialize to JSON string (no trailing newline — caller adds delimiter).
     /// </summary>
@@ -49,12 +52,12 @@ public class IpcMessage
     }
 
     /// <summary>
-    /// Create a typed message with a payload object.
+    /// Create a typed message with a payload object and optional correlation ID.
     /// </summary>
-    public static IpcMessage Create<T>(string type, T payload)
+    public static IpcMessage Create<T>(string type, T payload, string? requestId = null)
     {
         if (payload is null)
-            return new IpcMessage { Type = type };
+            return new IpcMessage { Type = type, RequestId = requestId };
 
         var payloadType = payload.GetType();
         JsonElement json;
@@ -70,14 +73,20 @@ public class IpcMessage
                 ex);
         }
 
-        return new IpcMessage { Type = type, Payload = json };
+        return new IpcMessage { Type = type, Payload = json, RequestId = requestId };
     }
 
     /// <summary>
-    /// Create a simple message with no payload.
+    /// Create a simple message with no payload and optional correlation ID.
     /// </summary>
-    public static IpcMessage Create(string type)
-        => new() { Type = type };
+    public static IpcMessage Create(string type, string? requestId = null)
+        => new() { Type = type, RequestId = requestId };
+
+    /// <summary>
+    /// Create a response message that inherits the RequestId from the request.
+    /// </summary>
+    public static IpcMessage CreateResponse<T>(IpcMessage request, string type, T payload)
+        => Create(type, payload, request.RequestId);
 
     /// <summary>
     /// Deserialize the payload to a specific type.

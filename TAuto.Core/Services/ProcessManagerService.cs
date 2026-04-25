@@ -60,6 +60,9 @@ public class ProcessManagerService : IDisposable
     /// <summary>Enable auto-restart of crashed Workers.</summary>
     public bool AutoRestart { get; set; } = true;
 
+    /// <summary>Timeout for worker to acknowledge START command.</summary>
+    public int StartCommandTimeoutMs { get; set; } = 10000;
+
     // Events
     public event Action<string, WorkerLogEntry>? OnWorkerLog;
     public event Action<string, WorkerTraceEntry>? OnWorkerTrace;
@@ -322,9 +325,14 @@ public class ProcessManagerService : IDisposable
                 }
                 OnWorkerStatusChanged?.Invoke(workerId, status);
 
+                if (isHardwareMissing)
+                {
+                    _logger?.LogWarning($"HARDWARE_MISSING detected for worker '{workerId}'. This usually indicates a timeout or device unplugged.");
+                }
+
                 bool shouldRestart = false;
                 // Use the closure's 'worker' instance instead of querying the dictionary to avoid races if worker was replaced
-                shouldRestart = AutoRestart && (isCrash || isReaped) && !isStartTimeout && !isHardwareMissing && !isNativeCrash && !_disposed && worker.IsInitialized && !_isShuttingDown;
+                shouldRestart = AutoRestart && (isCrash || isReaped || isHardwareMissing) && !isStartTimeout && !isNativeCrash && !_disposed && worker.IsInitialized && !_isShuttingDown;
 
                 await RemoveWorkerAsync(workerId, worker);
 
@@ -477,18 +485,29 @@ public class ProcessManagerService : IDisposable
             }
         }
 
-        // 6. Start Writer Loop and Send start command
+        // 6. Start background listener and writer loop
         worker.WriterTask = Task.Run(() => ProcessWriterLoopAsync(worker), worker.Cts.Token);
+        _ = Task.Run(() => _ipcListener.ListenAsync(worker), worker.Cts.Token);
 
-        var startMsg = IpcMessage.Create(IpcMessageTypes.Start, startupArgs);
+        var requestId = Guid.NewGuid().ToString("N");
+        var ackTask = _ipcListener.WaitForAckAsync(workerId, requestId, StartCommandTimeoutMs);
+        
+        var startMsg = IpcMessage.Create(IpcMessageTypes.Start, startupArgs, requestId);
         worker.MessageChannel.Writer.TryWrite(startMsg.ToJson());
+
+        // AUDIT FIX: Wait for worker to acknowledge start command
+        bool acked = await ackTask;
+        if (!acked)
+        {
+            _logger?.LogError($"Worker '{workerId}' failed to acknowledge START command within {StartCommandTimeoutMs}ms. Delivery guarantee failed. Forcing restart.");
+            _intentionalStops.TryAdd(workerId, "ack_timeout");
+            _processSpawner.KillProcess(process);
+            throw new TimeoutException($"Worker '{workerId}' failed to ACK Start command.");
+        }
 
         worker.IsInitialized = true;
 
         OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Running);
-
-        // Start background message listener
-        _ = Task.Run(() => _ipcListener.ListenAsync(worker), worker.Cts.Token);
 
         // LATE STOP DETECTION: If a stop was intentionally requested while this was spinning up
         if (_intentionalStops.ContainsKey(workerId))
@@ -716,11 +735,12 @@ public class ProcessManagerService : IDisposable
     /// </summary>
     public async Task<Dictionary<string, System.Text.Json.JsonElement>?> RequestVariablesAsync(string workerId, int timeoutMs = 5000)
     {
-        // 1. Register the wait BEFORE sending the request to avoid race conditions
-        var waitTask = _ipcListener.WaitForVariablesAsync(workerId, timeoutMs);
+        // 1. Generate unique request ID and register the wait BEFORE sending to avoid races
+        var requestId = Guid.NewGuid().ToString("N");
+        var waitTask = _ipcListener.WaitForVariablesAsync(workerId, requestId, timeoutMs);
 
         // 2. Send the request
-        var msg = IpcMessage.Create(IpcMessageTypes.RequestVariables);
+        var msg = IpcMessage.Create(IpcMessageTypes.RequestVariables, requestId);
         var sent = await SendMessageToWorkerAsync(workerId, msg);
         if (!sent)
         {
@@ -921,7 +941,7 @@ public class ProcessManagerService : IDisposable
                     catch (Exception ex)
                     {
                         _logger?.LogError($"Error writing to worker '{worker.WorkerId}' pipe: {ex.Message}. Disconnecting.");
-                        _ = RemoveWorkerAsync(worker.WorkerId);
+                        _ = RemoveWorkerAsync(worker.WorkerId, worker);
                         return;
                     }
                 }

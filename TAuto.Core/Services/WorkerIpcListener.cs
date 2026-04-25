@@ -22,8 +22,11 @@ public class WorkerIpcListener
     private readonly Action<string, WorkerTraceEntry>? _onWorkerTrace;
     private readonly Action<string, string>? _onWorkerStatusChanged;
 
-    // Pending variable snapshot requests keyed by workerId
+    // Pending variable snapshot requests keyed by RequestId
     private readonly ConcurrentDictionary<string, TaskCompletionSource<Dictionary<string, JsonElement>>> _pendingVarRequests = new();
+    
+    // Pending ACK requests keyed by RequestId
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> _pendingAcks = new();
 
 
     public WorkerIpcListener(
@@ -106,9 +109,24 @@ public class WorkerIpcListener
 
                     case IpcMessageTypes.VariablesSnapshot:
                         var snapshot = msg.GetPayload<Dictionary<string, JsonElement>>();
-                        if (_pendingVarRequests.TryRemove(worker.WorkerId, out var tcs))
+                        var rid = msg.RequestId;
+                        if (!string.IsNullOrEmpty(rid) && _pendingVarRequests.TryRemove(rid, out var tcs))
                         {
                             tcs.TrySetResult(snapshot ?? new Dictionary<string, JsonElement>());
+                        }
+                        break;
+                    case IpcMessageTypes.Ack:
+                        var ackRid = msg.RequestId;
+                        if (!string.IsNullOrEmpty(ackRid) && _pendingAcks.TryRemove(ackRid, out var ackTcs))
+                        {
+                            ackTcs.TrySetResult(true);
+                        }
+                        break;
+                    case IpcMessageTypes.Nack:
+                        var nackRid = msg.RequestId;
+                        if (!string.IsNullOrEmpty(nackRid) && _pendingAcks.TryRemove(nackRid, out var nackTcs))
+                        {
+                            nackTcs.TrySetResult(false);
                         }
                         break;
                 }
@@ -123,9 +141,7 @@ public class WorkerIpcListener
         finally
         {
             _tokenService.ReleaseAllForWorker(worker.WorkerId);
-            // Cancel any pending variable request for this worker
-            if (_pendingVarRequests.TryRemove(worker.WorkerId, out var pendingTcs))
-                pendingTcs.TrySetCanceled();
+            // Cancel any pending variable requests (Cleanup of RequestId-based dict is handled by timeouts)
         }
     }
 
@@ -133,15 +149,15 @@ public class WorkerIpcListener
     /// Requests variables from a worker and waits for the snapshot reply.
     /// The actual IPC send must be done by the caller; this only registers the wait.
     /// </summary>
-    public async Task<Dictionary<string, JsonElement>?> WaitForVariablesAsync(string workerId, int timeoutMs = 5000)
+    public async Task<Dictionary<string, JsonElement>?> WaitForVariablesAsync(string workerId, string requestId, int timeoutMs = 5000)
     {
         var tcs = new TaskCompletionSource<Dictionary<string, JsonElement>>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _pendingVarRequests[workerId] = tcs;
+        _pendingVarRequests[requestId] = tcs;
 
         using var cts = new CancellationTokenSource(timeoutMs);
         using var reg = cts.Token.Register(() =>
         {
-            if (_pendingVarRequests.TryRemove(workerId, out var removed))
+            if (_pendingVarRequests.TryRemove(requestId, out var removed))
                 removed.TrySetCanceled();
         });
 
@@ -153,6 +169,29 @@ public class WorkerIpcListener
         {
             _logger?.LogWarning("Variable request for worker '{WorkerId}' timed out after {Timeout}ms.", workerId, timeoutMs);
             return null;
+        }
+    }
+
+    public async Task<bool> WaitForAckAsync(string workerId, string requestId, int timeoutMs = 5000)
+    {
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingAcks[requestId] = tcs;
+
+        using var cts = new CancellationTokenSource(timeoutMs);
+        using var reg = cts.Token.Register(() =>
+        {
+            if (_pendingAcks.TryRemove(requestId, out var removed))
+                removed.TrySetCanceled();
+        });
+
+        try
+        {
+            return await tcs.Task;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger?.LogWarning("ACK for worker '{WorkerId}' (Req: {RequestId}) timed out after {Timeout}ms.", workerId, requestId, timeoutMs);
+            return false;
         }
     }
 }

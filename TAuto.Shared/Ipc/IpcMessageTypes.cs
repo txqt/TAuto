@@ -27,4 +27,6 @@ public static class IpcMessageTypes
     public const string ReleaseToken   = "release_token";
     public const string Ready          = "ready";
     public const string Exiting        = "exiting";
+    public const string Ack            = "ack";
+    public const string Nack           = "nack";
 }
