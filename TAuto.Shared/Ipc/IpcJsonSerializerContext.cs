@@ -15,6 +15,6 @@ namespace TAuto.Shared.Ipc;
 [JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(Dictionary<string, object>))]
 [JsonSerializable(typeof(Dictionary<string, JsonElement>))]
-internal partial class IpcJsonSerializerContext : JsonSerializerContext
+public partial class IpcJsonSerializerContext : JsonSerializerContext
 {
 }
