@@ -126,7 +126,7 @@ public class ProcessManagerService : IDisposable
                 else
                 {
                     try { _processSpawner.KillProcess(existingWorker.Process); } catch { }
-                    await RemoveWorkerAsync(workerId, existingWorker);
+                    await RemoveWorkerAsync(workerId, "Replacing existing worker", existingWorker);
                 }
             }
 
@@ -245,7 +245,7 @@ public class ProcessManagerService : IDisposable
             catch {
                 try { _processSpawner.KillProcess(worker.Process); if (worker.VisionProcess != null) _processSpawner.KillProcess(worker.VisionProcess); } catch { }
             }
-            await RemoveWorkerAsync(workerId);
+            await RemoveWorkerAsync(workerId, "User requested stop");
         }
         finally { if (locked) try { workerLock.Release(); } catch { } }
     }
@@ -285,8 +285,9 @@ public class ProcessManagerService : IDisposable
         return null;
     }
 
-    private async Task RemoveWorkerAsync(string workerId, IWorkerProcess? expected = null)
+    private async Task RemoveWorkerAsync(string workerId, string reason = "Unknown", IWorkerProcess? expected = null)
     {
+        _logger?.LogInformation($"Removing worker '{workerId}'. Reason: {reason}");
         bool isCurrent = expected != null ? ((ICollection<KeyValuePair<string, IWorkerProcess>>)_workers).Remove(new KeyValuePair<string, IWorkerProcess>(workerId, expected)) : _workers.TryRemove(workerId, out expected);
         if (expected != null) {
             if (expected is WorkerProcess wp) {
@@ -340,7 +341,7 @@ public class ProcessManagerService : IDisposable
             if (stop && reason == "reaped") status = WorkerStates.ZombieReaped;
             OnWorkerStatusChanged?.Invoke(id, status);
             bool restart = AutoRestart && !stop && status != WorkerStates.Stopped && status != WorkerStates.StartTimeout && !_disposed && !_isShuttingDown;
-            await RemoveWorkerAsync(id, w);
+            await RemoveWorkerAsync(id, "Worker process exited", w);
             if (restart) {
                 if (_crashProtector.RegisterCrashAndCheckIfLooping(id)) { OnWorkerStatusChanged?.Invoke(id, WorkerStates.CrashLoopStopped); return; }
                 OnWorkerStatusChanged?.Invoke(id, WorkerStates.Restarting);
@@ -357,8 +358,8 @@ public class ProcessManagerService : IDisposable
         try {
             while (await w.MessageChannel.Reader.WaitToReadAsync(w.Cts.Token))
                 while (w.MessageChannel.Reader.TryRead(out var m))
-                    try { await w.Writer.WriteLineAsync(m).WaitAsync(TimeSpan.FromSeconds(5), w.Cts.Token); } catch { _ = RemoveWorkerAsync(w.WorkerId, w); return; }
-        } catch { _ = RemoveWorkerAsync(w.WorkerId); }
+                    try { await w.Writer.WriteLineAsync(m).WaitAsync(TimeSpan.FromSeconds(15), w.Cts.Token); } catch { _ = RemoveWorkerAsync(w.WorkerId, "Pipe write timeout (15s)", w); return; }
+        } catch { _ = RemoveWorkerAsync(w.WorkerId, "Writer loop exception"); }
     }
 
     public void MarkIntentionalStop(string id) => _intentionalStops.TryAdd(id, "cleared");
