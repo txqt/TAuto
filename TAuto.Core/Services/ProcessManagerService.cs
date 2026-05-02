@@ -158,7 +158,7 @@ public class ProcessManagerService : IDisposable
                     }
                     
                     startupArgs.VisionPipeName = $"AutoBot_Vision_{workerId}_{Guid.NewGuid():N}";
-                    existingWorker.VisionProcess = StartVisionServerProcess(startupArgs.VisionPipeName);
+                    existingWorker.VisionProcess = StartVisionServerProcess(startupArgs.VisionPipeName, cancellationToken);
                     if (existingWorker is WorkerProcess wp) AttachVisionHandlers(workerId, wp);
                 }
                 
@@ -230,7 +230,7 @@ public class ProcessManagerService : IDisposable
                 _logger?.LogInformation($"Native AOT Executable detected: Overriding worker EXE to '{exePath}'");
 
                 startupArgs.VisionPipeName = $"AutoBot_Vision_{workerId}_{Guid.NewGuid():N}";
-                visionProcess = StartVisionServerProcess(startupArgs.VisionPipeName);
+                visionProcess = StartVisionServerProcess(startupArgs.VisionPipeName, cancellationToken);
             }
 
             process = _processSpawner.SpawnWorkerProcess(exePath, $"--pipe {pipeName} --id {workerId}", botFolder);
@@ -276,122 +276,129 @@ public class ProcessManagerService : IDisposable
         {
             try
             {
-                var exitCode = process.ExitCode;
-                _logger?.LogInformation($"Worker '{workerId}' exited with code {exitCode}");
-                OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+                try
                 {
-                    WorkerId = workerId,
-                    Level = "ERROR",
-                    Message = $"Worker process exited with code {exitCode}"
-                });
+                    var exitCode = process.ExitCode;
+                    _logger?.LogInformation($"Worker '{workerId}' exited with code {exitCode}");
+                    OnWorkerLog?.Invoke(workerId, new WorkerLogEntry
+                    {
+                        WorkerId = workerId,
+                        Level = "ERROR",
+                        Message = $"Worker process exited with code {exitCode}"
+                    });
 
-                _tokenService.ReleaseAllForWorker(workerId);
-                // FIX-1 (Audit): exitCode -1 IS now a crash (unhandled exception).
-                // Only -2 (deliberate startup timeout) is treated as non-crash.
-                // FIX-4 (Audit): exitCode -3 = hardware unavailable — crash but NO auto-restart.
-                bool isStartTimeout = exitCode == -2;
-                bool isCrash = exitCode != 0 && exitCode != -2;
-                bool isHardwareMissing = exitCode == -3;
-                bool isNativeCrash = exitCode != 0 && exitCode != -1 && exitCode != -2 && exitCode != -3 && exitCode != -4;
-                bool isReaped = false;
-                
-                if (_intentionalStops.TryRemove(workerId, out var stopReason))
-                {
-                    isCrash = false;
-                    isHardwareMissing = false;
-                    isNativeCrash = false;
-                    // Audit FIX-6: Do not clear history on intentional stop to avoid bypassing crash loop memory
+                    _tokenService.ReleaseAllForWorker(workerId);
+                    // FIX-1 (Audit): exitCode -1 IS now a crash (unhandled exception).
+                    // Only -2 (deliberate startup timeout) is treated as non-crash.
+                    // FIX-4 (Audit): exitCode -3 = hardware unavailable — crash but NO auto-restart.
+                    bool isStartTimeout = exitCode == -2;
+                    bool isCrash = exitCode != 0 && exitCode != -2;
+                    bool isHardwareMissing = exitCode == -3;
+                    bool isNativeCrash = exitCode != 0 && exitCode != -1 && exitCode != -2 && exitCode != -3 && exitCode != -4;
+                    bool isReaped = false;
                     
-                    // Audit FIX-3: Don't overwrite ZombieReaped status with Stopped
-                    if (stopReason == "reaped")
+                    if (_intentionalStops.TryRemove(workerId, out var stopReason))
                     {
-                        isReaped = true;
-                    }
-                }
-
-                string status;
-                if (isStartTimeout)
-                {
-                    status = WorkerStates.StartTimeout;
-                }
-                else if (isCrash)
-                {
-                    status = isHardwareMissing ? WorkerStates.HardwareMissing
-                        : (isNativeCrash ? WorkerStates.Crashed : WorkerStates.Crashed);
-                }
-                else
-                {
-                    status = isReaped ? WorkerStates.ZombieReaped : WorkerStates.Stopped;
-                }
-                OnWorkerStatusChanged?.Invoke(workerId, status);
-
-                if (isHardwareMissing)
-                {
-                    _logger?.LogWarning($"HARDWARE_MISSING detected for worker '{workerId}'. This usually indicates a timeout or device unplugged.");
-                }
-
-                bool shouldRestart = false;
-                // Use the closure's 'worker' instance instead of querying the dictionary to avoid races if worker was replaced
-                shouldRestart = AutoRestart && (isCrash || isReaped || isHardwareMissing) && !isStartTimeout && !isNativeCrash && !_disposed && worker.IsInitialized && !_isShuttingDown;
-
-                await RemoveWorkerAsync(workerId, worker);
-
-                if (shouldRestart)
-                {
-                    bool isLooping = _crashProtector.RegisterCrashAndCheckIfLooping(workerId);
-                    if (isLooping)
-                    {
-                        _logger?.LogError($"CRASH LOOP DETECTED for '{workerId}'. Stopping auto-restart.");
-                        OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.CrashLoopStopped);
-                        return;
-                    }
-
-                    OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Restarting);
-                    int delay = isReaped ? Math.Max(RestartDelayMs, 8000) : RestartDelayMs;
-                    // FIX C-3 (Audit): Observe _shutdownCts so StopAll can cancel pending restart delays
-                    try { await Task.Delay(delay, _shutdownCts.Token); }
-                    catch (OperationCanceledException)
-                    {
-                        _logger?.LogInformation($"Restart delay for '{workerId}' cancelled by StopAll.");
-                        OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Stopped);
-                        return;
-                    }
-
-                    if (!_disposed && !_isShuttingDown && AutoRestart && !_intentionalStops.ContainsKey(workerId))
-                    {
-                        try
+                        isCrash = false;
+                        isHardwareMissing = false;
+                        isNativeCrash = false;
+                        // Audit FIX-6: Do not clear history on intentional stop to avoid bypassing crash loop memory
+                        
+                        // Audit FIX-3: Don't overwrite ZombieReaped status with Stopped
+                        if (stopReason == "reaped")
                         {
-                            string botDll = capturedBotDllPath ?? string.Empty;
-                            string botDir = File.Exists(botDll) 
-                                ? (Path.GetDirectoryName(botDll) ?? botDll)
-                                : botDll;
-                            
-                            if (OnAutoRestartRequested != null)
-                            {
-                                await OnAutoRestartRequested(capturedStartupArgs, botDir);
-                            }
-                            else
-                            {
-                                await StartWorkerAsync(capturedStartupArgs, botDir);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger?.LogError($"Failed to restart Worker '{workerId}': {ex.Message}");
-                            OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.RestartFailed);
+                            isReaped = true;
                         }
                     }
-                    else if (shouldRestart)
+
+                    string status;
+                    if (isStartTimeout)
                     {
-                        // Restart was intended but conditions changed during delay (e.g., disposed or shutting down)
-                        OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Stopped);
+                        status = WorkerStates.StartTimeout;
                     }
+                    else if (isCrash)
+                    {
+                        status = isHardwareMissing ? WorkerStates.HardwareMissing
+                            : (isNativeCrash ? WorkerStates.Crashed : WorkerStates.Crashed);
+                    }
+                    else
+                    {
+                        status = isReaped ? WorkerStates.ZombieReaped : WorkerStates.Stopped;
+                    }
+                    OnWorkerStatusChanged?.Invoke(workerId, status);
+
+                    if (isHardwareMissing)
+                    {
+                        _logger?.LogWarning($"HARDWARE_MISSING detected for worker '{workerId}'. This usually indicates a timeout or device unplugged.");
+                    }
+
+                    bool shouldRestart = false;
+                    // Use the closure's 'worker' instance instead of querying the dictionary to avoid races if worker was replaced
+                    shouldRestart = AutoRestart && (isCrash || isReaped || isHardwareMissing) && !isStartTimeout && !isNativeCrash && !_disposed && worker.IsInitialized && !_isShuttingDown;
+
+                    await RemoveWorkerAsync(workerId, worker);
+
+                    if (shouldRestart)
+                    {
+                        bool isLooping = _crashProtector.RegisterCrashAndCheckIfLooping(workerId);
+                        if (isLooping)
+                        {
+                            _logger?.LogError($"CRASH LOOP DETECTED for '{workerId}'. Stopping auto-restart.");
+                            OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.CrashLoopStopped);
+                            return;
+                        }
+
+                        OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Restarting);
+                        int delay = isReaped ? Math.Max(RestartDelayMs, 8000) : RestartDelayMs;
+                        // FIX C-3 (Audit): Observe _shutdownCts so StopAll can cancel pending restart delays
+                        try { await Task.Delay(delay, _shutdownCts.Token); }
+                        catch (OperationCanceledException)
+                        {
+                            _logger?.LogInformation($"Restart delay for '{workerId}' cancelled by StopAll.");
+                            OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Stopped);
+                            return;
+                        }
+
+                        if (!_disposed && !_isShuttingDown && AutoRestart && !_intentionalStops.ContainsKey(workerId))
+                        {
+                            try
+                            {
+                                string botDll = capturedBotDllPath ?? string.Empty;
+                                string botDir = File.Exists(botDll) 
+                                    ? (Path.GetDirectoryName(botDll) ?? botDll)
+                                    : botDll;
+                                
+                                if (OnAutoRestartRequested != null)
+                                {
+                                    await OnAutoRestartRequested(capturedStartupArgs, botDir);
+                                }
+                                else
+                                {
+                                    await StartWorkerAsync(capturedStartupArgs, botDir);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger?.LogError($"Failed to restart Worker '{workerId}': {ex.Message}");
+                                OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.RestartFailed);
+                            }
+                        }
+                        else if (shouldRestart)
+                        {
+                            // Restart was intended but conditions changed during delay (e.g., disposed or shutting down)
+                            OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Stopped);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogCritical($"CRITICAL: Worker '{workerId}' Exited handler failed: {ex.Message}");
+                    OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.HandlerError);
                 }
             }
             catch (Exception ex)
             {
-                _logger?.LogCritical($"CRITICAL: Worker '{workerId}' Exited handler failed: {ex.Message}");
-                OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.HandlerError);
+                _logger?.LogCritical(ex, $"FATAL: Unhandled exception in Worker Exited handler for {workerId}");
             }
         };
         process.Exited += worker.ExitedHandler;
@@ -838,8 +845,9 @@ public class ProcessManagerService : IDisposable
         // Method end
     }
 
-    private Process StartVisionServerProcess(string visionPipeName)
+    private Process StartVisionServerProcess(string visionPipeName, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         if (!File.Exists(VisionServerExePath))
             throw new FileNotFoundException($"VisionServer executable not found: {VisionServerExePath}");
 

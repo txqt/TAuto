@@ -1,9 +1,0 @@
-bin/
-obj/
-.git/
-*.dll
-*.exe
-*.pdb
-*.webp
-*.png
-*.jpg

@@ -12,7 +12,7 @@ namespace TAuto.Core;
 /// Execution context for scripts.
 /// Acts as a Facade over ScriptState and ScreenCaptureManager.
 /// </summary>
-public class ScriptContext
+public class ScriptContext : IDisposable
 {
     private readonly ScriptState _state = new();
     private readonly ScreenCaptureManager _captureManager;
@@ -197,5 +197,11 @@ public class ScriptContext
     public void ClearEvents() => _state.ClearEvents();
     public bool HasEvent(string name) => _state.HasEvent(name);
     #endregion
+    public void Dispose()
+    {
+        _captureManager?.Dispose();
+        _visionCache.Clear();
+        _scopedVariables.Clear();
+    }
 }
 
