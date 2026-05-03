@@ -34,6 +34,11 @@ public interface IWorkerProcess
     /// The background task responsible for writing messages to the pipe.
     /// </summary>
     Task? WriterTask { get; set; }
+
+    /// <summary>
+    /// The task responsible for processing the worker's exit logic.
+    /// </summary>
+    Task? ExitHandlingTask { get; set; }
 }
 
 public class WorkerProcess : IWorkerProcess
@@ -57,6 +62,7 @@ public class WorkerProcess : IWorkerProcess
     });
 
     public Task? WriterTask { get; set; }
+    public Task? ExitHandlingTask { get; set; }
 
     // Delegate tracking to break event handler roots and prevent memory leaks
     public EventHandler? ExitedHandler { get; set; }

@@ -93,6 +93,8 @@ public class ProcessManagerService : IDisposable
         }
     }
 
+    public IEnumerable<string> GetActiveWorkers() => _workers.Keys;
+
     public async Task<string> StartWorkerAsync(WorkerStartupArgs startupArgs, string botFolder, CancellationToken cancellationToken = default)
     {
         var workerId = string.IsNullOrEmpty(startupArgs.WorkerId) ? $"worker-{Random.Shared.Next(1000, 9999)}" : startupArgs.WorkerId;
@@ -167,7 +169,10 @@ public class ProcessManagerService : IDisposable
             AttachWorkerHandlers(workerId, worker);
 
             string? capturedBotDllPath = startupArgs.BotDllPath;
-            worker.ExitedHandler = (s, e) => { _ = HandleWorkerExitAsync(workerId, worker, capturedBotDllPath); };
+            worker.ExitedHandler = (s, e) => 
+            { 
+                worker.ExitHandlingTask = Task.Run(async () => await HandleWorkerExitAsync(workerId, worker, capturedBotDllPath)); 
+            };
             process.Exited += worker.ExitedHandler;
 
             try {
@@ -303,7 +308,28 @@ public class ProcessManagerService : IDisposable
             }
             expected.Cts?.Cancel();
             expected.MessageChannel?.Writer.TryComplete();
-            if (expected.WriterTask != null) try { await expected.WriterTask.WaitAsync(TimeSpan.FromMilliseconds(500)); } catch { }
+            if (expected.WriterTask != null) 
+            {
+                try 
+                { 
+                    // P0-5: Increased timeout to ensure writer task has time to flush/close
+                    await expected.WriterTask.WaitAsync(TimeSpan.FromSeconds(2)); 
+                } 
+                catch (TimeoutException)
+                {
+                    _logger?.LogWarning("RemoveWorkerAsync: WriterTask for '{WorkerId}' did not terminate within 2s.", workerId);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "RemoveWorkerAsync: Error waiting for WriterTask for '{WorkerId}'.", workerId);
+                }
+            }
+            
+            if (expected.ExitHandlingTask != null && Task.CurrentId != expected.ExitHandlingTask.Id) 
+            {
+                // We don't await ExitHandlingTask here because RemoveWorkerAsync is often called FROM it.
+                // But we should ensure it's at least not completely ignored if called from StopWorkerAsync.
+            }
             try { expected.Cts?.Dispose(); expected.Writer?.Dispose(); expected.Reader?.Dispose(); expected.PipeServer?.Dispose(); } catch { }
             try { if (expected.VisionProcess is { HasExited: false }) _processSpawner.KillProcess(expected.VisionProcess); } catch { }
             try { expected.VisionProcess?.Dispose(); expected.Process?.Dispose(); } catch { }
