@@ -250,7 +250,7 @@ public class ProcessManagerService : IDisposable
             catch {
                 try { _processSpawner.KillProcess(worker.Process); if (worker.VisionProcess != null) _processSpawner.KillProcess(worker.VisionProcess); } catch { }
             }
-            await RemoveWorkerAsync(workerId, "User requested stop");
+            await RemoveWorkerAsync(workerId, "User requested stop", null, !locked);
         }
         finally { if (locked) try { workerLock.Release(); } catch { } }
     }
@@ -290,7 +290,7 @@ public class ProcessManagerService : IDisposable
         return null;
     }
 
-    private async Task RemoveWorkerAsync(string workerId, string reason = "Unknown", IWorkerProcess? expected = null)
+    private async Task RemoveWorkerAsync(string workerId, string reason = "Unknown", IWorkerProcess? expected = null, bool keepLock = false)
     {
         _logger?.LogInformation($"Removing worker '{workerId}'. Reason: {reason}");
         bool isCurrent = expected != null ? ((ICollection<KeyValuePair<string, IWorkerProcess>>)_workers).Remove(new KeyValuePair<string, IWorkerProcess>(workerId, expected)) : _workers.TryRemove(workerId, out expected);
@@ -334,7 +334,11 @@ public class ProcessManagerService : IDisposable
             try { if (expected.VisionProcess is { HasExited: false }) _processSpawner.KillProcess(expected.VisionProcess); } catch { }
             try { expected.VisionProcess?.Dispose(); expected.Process?.Dispose(); } catch { }
         }
-        if (isCurrent) { _heartbeatMonitor.Clear(workerId); _logStreamer.CloseWriter(workerId); _workerLocks.TryRemove(workerId, out _); }
+        if (isCurrent) { 
+            _heartbeatMonitor.Clear(workerId); 
+            _logStreamer.CloseWriter(workerId); 
+            if (!keepLock) _workerLocks.TryRemove(workerId, out _); 
+        }
     }
 
     private Process StartVisionServerProcess(string pipe, CancellationToken ct) {
@@ -358,6 +362,8 @@ public class ProcessManagerService : IDisposable
     }
 
     private async Task HandleWorkerExitAsync(string id, WorkerProcess w, string? dll) {
+        var workerLock = _workerLocks.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
+        bool locked = false;
         try {
             var code = w.Process.ExitCode;
             OnWorkerLog?.Invoke(id, new WorkerLogEntry { WorkerId = id, Level = "ERROR", Message = $"Exited with {code}" });
@@ -367,8 +373,11 @@ public class ProcessManagerService : IDisposable
             if (stop && reason == "reaped") status = WorkerStates.ZombieReaped;
             OnWorkerStatusChanged?.Invoke(id, status);
             bool restart = AutoRestart && !stop && status != WorkerStates.Stopped && status != WorkerStates.StartTimeout && !_disposed && !_isShuttingDown;
-            await RemoveWorkerAsync(id, "Worker process exited", w);
+            
             if (restart) {
+                // If restarting, we acquire the lock to prevent manual starts during the delay
+                try { locked = await workerLock.WaitAsync(TimeSpan.FromSeconds(5)); } catch { }
+                await RemoveWorkerAsync(id, "Worker process exited (restarting)", w, true);
                 if (_crashProtector.RegisterCrashAndCheckIfLooping(id)) { OnWorkerStatusChanged?.Invoke(id, WorkerStates.CrashLoopStopped); return; }
                 OnWorkerStatusChanged?.Invoke(id, WorkerStates.Restarting);
                 try { await Task.Delay(RestartDelayMs, _shutdownCts.Token); } catch { return; }
@@ -377,7 +386,11 @@ public class ProcessManagerService : IDisposable
                     else await StartWorkerAsync(w.StartupArgs, Path.GetDirectoryName(dll) ?? "");
                 }
             }
+            else {
+                await RemoveWorkerAsync(id, "Worker process exited", w, false);
+            }
         } catch { OnWorkerStatusChanged?.Invoke(id, WorkerStates.HandlerError); }
+        finally { if (locked) try { workerLock.Release(); } catch { } }
     }
 
     private async Task ProcessWriterLoopAsync(IWorkerProcess w) {
