@@ -113,8 +113,8 @@ public class ProcessManagerService : IDisposable
                     {
                         if (existingWorker.VisionProcess is { HasExited: false })
                         {
-                            try { _processSpawner.KillProcess(existingWorker.VisionProcess); } catch { }
-                            try { existingWorker.VisionProcess.Dispose(); } catch { }
+                            try { _processSpawner.KillProcess(existingWorker.VisionProcess); } catch (Exception ex) { _logger?.LogWarning(ex, "Failed to kill existing vision process for worker {WorkerId}", workerId); }
+                            try { existingWorker.VisionProcess.Dispose(); } catch (Exception ex) { _logger?.LogWarning(ex, "Failed to dispose existing vision process for worker {WorkerId}", workerId); }
                         }
                         startupArgs.VisionPipeName = $"AutoBot_Vision_{workerId}_{Guid.NewGuid():N}";
                         existingWorker.VisionProcess = StartVisionServerProcess(startupArgs.VisionPipeName, cancellationToken);
@@ -127,18 +127,16 @@ public class ProcessManagerService : IDisposable
                 }
                 else
                 {
-                    try { _processSpawner.KillProcess(existingWorker.Process); } catch { }
+                    try { _processSpawner.KillProcess(existingWorker.Process); } catch (Exception ex) { _logger?.LogWarning(ex, "Failed to kill existing process for worker {WorkerId}", workerId); }
                     await RemoveWorkerAsync(workerId, "Replacing existing worker", existingWorker);
                 }
             }
 
             if (!string.IsNullOrEmpty(startupArgs.BotDllPath) && File.Exists(startupArgs.BotDllPath))
             {
-                try {
-                    using var sha256 = System.Security.Cryptography.SHA256.Create();
-                    using var fs = File.OpenRead(startupArgs.BotDllPath);
-                    startupArgs.ExpectedPayloadHash = Convert.ToHexString(sha256.ComputeHash(fs));
-                } catch { }
+                } catch (Exception ex) {
+                    _logger?.LogWarning(ex, "Failed to compute payload hash for {BotDllPath}", startupArgs.BotDllPath);
+                }
             }
 
             var pipeName = $"AutoBot_Worker_{workerId}_{Guid.NewGuid():N}";
@@ -157,8 +155,9 @@ public class ProcessManagerService : IDisposable
                 }
                 process = _processSpawner.SpawnWorkerProcess(exePath, $"--pipe {pipeName} --id {workerId}", botFolder);
             }
-            catch {
-                if (visionProcess != null) { try { _processSpawner.KillProcess(visionProcess); } catch { } visionProcess.Dispose(); }
+            catch (Exception ex) {
+                _logger?.LogError(ex, "Failed to spawn worker or vision process for {WorkerId}", workerId);
+                if (visionProcess != null) { try { _processSpawner.KillProcess(visionProcess); } catch (Exception vex) { _logger?.LogWarning(vex, "Failed to cleanup vision process after spawn failure for {WorkerId}", workerId); } visionProcess.Dispose(); }
                 pipeServer.Dispose(); throw;
             }
 
@@ -185,7 +184,8 @@ public class ProcessManagerService : IDisposable
                     await _pipeRegistry.WaitForConnectionAsync(pipeServer, AutomationDefaults.DefaultWorkerConnectTimeoutMs, connectCts.Token);
                 } finally { process.Exited -= OnEarlyExit; }
             }
-            catch {
+            catch (Exception ex) {
+                _logger?.LogError(ex, "Worker {WorkerId} failed to connect to pipe within timeout", workerId);
                 _intentionalStops.TryAdd(workerId, "timeout"); _processSpawner.KillProcess(process); pipeServer.Dispose(); throw;
             }
 
@@ -220,8 +220,8 @@ public class ProcessManagerService : IDisposable
             OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Running);
 
             if (_intentionalStops.ContainsKey(workerId)) {
-                try { _processSpawner.KillProcess(worker.Process); } catch { }
-                if (worker.VisionProcess != null) try { _processSpawner.KillProcess(worker.VisionProcess); } catch { }
+                try { _processSpawner.KillProcess(worker.Process); } catch (Exception ex) { _logger?.LogWarning(ex, "Failed to kill process after intentional stop detection for {WorkerId}", workerId); }
+                if (worker.VisionProcess != null) try { _processSpawner.KillProcess(worker.VisionProcess); } catch (Exception ex) { _logger?.LogWarning(ex, "Failed to kill vision process after intentional stop detection for {WorkerId}", workerId); }
                 OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Stopped);
                 _workers.TryRemove(workerId, out _);
             }
@@ -247,8 +247,9 @@ public class ProcessManagerService : IDisposable
                 using var exitCts = new CancellationTokenSource(ShutdownTimeoutMs);
                 await worker.Process.WaitForExitAsync(exitCts.Token);
             }
-            catch {
-                try { _processSpawner.KillProcess(worker.Process); if (worker.VisionProcess != null) _processSpawner.KillProcess(worker.VisionProcess); } catch { }
+            catch (Exception ex) {
+                _logger?.LogError(ex, "Error during StopWorkerAsync for {WorkerId}. Forcing termination.", workerId);
+                try { _processSpawner.KillProcess(worker.Process); if (worker.VisionProcess != null) _processSpawner.KillProcess(worker.VisionProcess); } catch (Exception kex) { _logger?.LogWarning(kex, "Failed to force terminate processes for {WorkerId}", workerId); }
             }
             await RemoveWorkerAsync(workerId, "User requested stop", null, !locked);
         }
@@ -276,7 +277,10 @@ public class ProcessManagerService : IDisposable
     {
         return _workers.Values.Select(w => {
             try { return (w.WorkerId, w.Process is { HasExited: false }, _heartbeatMonitor.GetLastHeartbeat(w.WorkerId)?.MemoryBytes ?? 0); }
-            catch { return (w.WorkerId, false, 0L); }
+            catch (Exception ex) { 
+                _logger?.LogTrace(ex, "Error getting status for worker {WorkerId}", w.WorkerId);
+                return (w.WorkerId, false, 0L); 
+            }
         }).ToList();
     }
 
@@ -330,9 +334,9 @@ public class ProcessManagerService : IDisposable
                 // We don't await ExitHandlingTask here because RemoveWorkerAsync is often called FROM it.
                 // But we should ensure it's at least not completely ignored if called from StopWorkerAsync.
             }
-            try { expected.Cts?.Dispose(); expected.Writer?.Dispose(); expected.Reader?.Dispose(); expected.PipeServer?.Dispose(); } catch { }
-            try { if (expected.VisionProcess is { HasExited: false }) _processSpawner.KillProcess(expected.VisionProcess); } catch { }
-            try { expected.VisionProcess?.Dispose(); expected.Process?.Dispose(); } catch { }
+            try { expected.Cts?.Dispose(); expected.Writer?.Dispose(); expected.Reader?.Dispose(); expected.PipeServer?.Dispose(); } catch (Exception ex) { _logger?.LogTrace(ex, "Cleanup error for {WorkerId}", workerId); }
+            try { if (expected.VisionProcess is { HasExited: false }) _processSpawner.KillProcess(expected.VisionProcess); } catch (Exception ex) { _logger?.LogWarning(ex, "Failed to kill vision process during removal of {WorkerId}", workerId); }
+            try { expected.VisionProcess?.Dispose(); expected.Process?.Dispose(); } catch (Exception ex) { _logger?.LogTrace(ex, "Dispose error for {WorkerId} processes", workerId); }
         }
         if (isCurrent) { 
             _heartbeatMonitor.Clear(workerId); 
@@ -389,7 +393,10 @@ public class ProcessManagerService : IDisposable
             else {
                 await RemoveWorkerAsync(id, "Worker process exited", w, false);
             }
-        } catch { OnWorkerStatusChanged?.Invoke(id, WorkerStates.HandlerError); }
+        } catch (Exception ex) { 
+            _logger?.LogError(ex, "Critical error in HandleWorkerExitAsync for {WorkerId}", id);
+            OnWorkerStatusChanged?.Invoke(id, WorkerStates.HandlerError); 
+        }
         finally { if (locked) try { workerLock.Release(); } catch { } }
     }
 
@@ -397,8 +404,8 @@ public class ProcessManagerService : IDisposable
         try {
             while (await w.MessageChannel.Reader.WaitToReadAsync(w.Cts.Token))
                 while (w.MessageChannel.Reader.TryRead(out var m))
-                    try { await w.Writer.WriteLineAsync(m).WaitAsync(TimeSpan.FromSeconds(15), w.Cts.Token); } catch { _ = RemoveWorkerAsync(w.WorkerId, "Pipe write timeout (15s)", w); return; }
-        } catch { _ = RemoveWorkerAsync(w.WorkerId, "Writer loop exception"); }
+                    try { await w.Writer.WriteLineAsync(m).WaitAsync(TimeSpan.FromSeconds(15), w.Cts.Token); } catch (Exception ex) { _logger?.LogError(ex, "Pipe write timeout for {WorkerId}. Removing worker.", w.WorkerId); _ = RemoveWorkerAsync(w.WorkerId, "Pipe write timeout (15s)", w); return; }
+        } catch (Exception ex) { _logger?.LogError(ex, "Writer loop exception for {WorkerId}", w.WorkerId); _ = RemoveWorkerAsync(w.WorkerId, "Writer loop exception"); }
     }
 
     public void MarkIntentionalStop(string id) => _intentionalStops.TryAdd(id, "cleared");
