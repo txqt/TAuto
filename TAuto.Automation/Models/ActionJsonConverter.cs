@@ -27,8 +27,14 @@ public sealed class ActionJsonConverter : JsonConverter<IAction>
         {
             var instance = kvp.Value();
             var type = instance.GetType();
+            
+            // Register original key (usually FullName)
             _typeMap[kvp.Key] = type;
-            _reverseTypeMap[type] = kvp.Key;
+            
+            // Also register short name (className) for AI compatibility
+            _typeMap[type.Name] = type;
+            
+            _reverseTypeMap[type] = type.Name; // Prefer short name for writing
         }
 #else
         // Dev mode: Reflection-based auto-discovery (unchanged from original)
@@ -43,10 +49,19 @@ public sealed class ActionJsonConverter : JsonConverter<IAction>
         foreach (var t in actionTypes)
         {
             var attr = (ActionTypeIdentifierAttribute?)Attribute.GetCustomAttribute(t, typeof(ActionTypeIdentifierAttribute));
-            var identifier = attr?.Identifier ?? t.FullName ?? t.Name;
+            
+            // Primary identifier from attribute or short name
+            var primaryId = attr?.Identifier ?? t.Name;
+            
+            _typeMap[primaryId] = t;
+            
+            // Also register FullName as fallback
+            if (t.FullName != null && t.FullName != primaryId)
+            {
+                _typeMap[t.FullName] = t;
+            }
 
-            _typeMap[identifier] = t;
-            _reverseTypeMap[t] = identifier;
+            _reverseTypeMap[t] = primaryId;
         }
 #endif
     }
