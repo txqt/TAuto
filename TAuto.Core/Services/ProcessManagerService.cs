@@ -153,7 +153,14 @@ public class ProcessManagerService : IDisposable
                     startupArgs.VisionPipeName = $"AutoBot_Vision_{workerId}_{Guid.NewGuid():N}";
                     visionProcess = StartVisionServerProcess(startupArgs.VisionPipeName, cancellationToken);
                 }
-                process = _processSpawner.SpawnWorkerProcess(exePath, $"--pipe {pipeName} --id {workerId}", botFolder);
+                
+                var workerArgs = $"--pipe {pipeName} --id {workerId}";
+                if (!string.IsNullOrEmpty(startupArgs.VisionPipeName))
+                {
+                    workerArgs += $" --vision-pipe {startupArgs.VisionPipeName}";
+                }
+                
+                process = _processSpawner.SpawnWorkerProcess(exePath, workerArgs, botFolder);
             }
             catch (Exception ex) {
                 _logger?.LogError(ex, "Failed to spawn worker or vision process for {WorkerId}", workerId);
