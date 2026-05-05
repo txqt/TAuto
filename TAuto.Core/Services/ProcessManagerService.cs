@@ -134,6 +134,7 @@ public class ProcessManagerService : IDisposable
 
             if (!string.IsNullOrEmpty(startupArgs.BotDllPath) && File.Exists(startupArgs.BotDllPath))
             {
+                try {
                 } catch (Exception ex) {
                     _logger?.LogWarning(ex, "Failed to compute payload hash for {BotDllPath}", startupArgs.BotDllPath);
                 }

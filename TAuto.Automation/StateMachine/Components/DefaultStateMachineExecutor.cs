@@ -63,6 +63,7 @@ public class DefaultStateMachineExecutor : IStateMachineExecutor
             try
             {
                 entryResult = await fsm.ActionExecutor.ExecuteActionsAsync(_currentState.EntryActions, context, _currentState.Name, true, ct);
+                fsm.LogTrace("EntryResult", _currentState.Name, details: $"success={entryResult.Success}, msg={entryResult.Message}");
             }
             catch (Exception ex)
             {
@@ -204,6 +205,7 @@ public class DefaultStateMachineExecutor : IStateMachineExecutor
                         (t.MaxRetries > 0 && transitionRetryCounts[t] >= t.MaxRetries));
                     if (allExhausted && _currentState.MaxDurationMs == 0)
                     {
+                        fsm.LogTrace("TransitionsExhausted", _currentState.Name, details: $"transitions={_sortedStateTransitions!.Length}, globals={_sortedGlobalTransitions?.Length ?? 0}, polls={pollCount}");
                         variableStore.ClearLocalVariables(_currentState.Name);
                         return ActionResult.Fail($"State '{_currentState.Name}': all transitions exhausted with no state timeout set.");
                     }
