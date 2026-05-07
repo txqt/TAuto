@@ -3,115 +3,94 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![.NET Core](https://img.shields.io/badge/.NET-8.0-blue.svg)]()
 
-**TAuto** is a standalone, lightweight, and high-performance automation library for .NET. It provides a robust engine for executing complex logic, state machines, and event-driven automation scripts without the need for a graphical interface.
+TAuto is the automation runtime used by AutoBot. It is a platform-agnostic .NET library for building bots from actions, shared execution context, and validated state machines.
 
-## 🚀 Purpose
-TAuto is designed for developers who need a powerful automation core to integrate into their own applications, whether they are console tools, background services, or custom UI frameworks. It abstracts away the complexity of state management and platform interaction.
+## What TAuto Owns
 
-### 1. Hybrid State Machine
-A professional-grade state machine engine that balances performance and responsiveness.
-- **Hybrid Polling**: Dynamically switches between fast (50ms) and slow (500ms) polling based on activity.
-- **Event-Driven Transitions**: Respond to signals in <1ms without waiting for the next poll cycle.
-- **Composite Logic**: Build complex transitions using **AND**, **OR**, and **NOT** operators.
-- **Timing & Retries**: Per-transition timeouts and max retry limits for robust failure recovery.
+- `TAuto.Core`
+  - core contracts such as `IAction`, `IDeviceController`, `IVisionService`, and `IOcrService`
+  - `ScriptContext` for device access, captures, variables, events, and session-scoped runtime state
+- `TAuto.Automation`
+  - concrete actions such as `TapAction`, `PressKeyAction`, `ClickImageAction`, and `ExtractTextAction`
+  - the state machine runtime: `StateMachine`, `StateMachineAction`, `StateMachineBuilder`, and `When`
+  - JSON serialization and editor-facing action metadata
 
-### 2. High-Performance Runner
-An asynchronous, non-blocking execution engine optimized for low-latency automation.
-- **Thread Safety**: Built on `SemaphoreSlim` and `CancellationToken` for robust execution control.
-- **Polymorphic Serialization**: Custom JSON converters for complex, nested action structures.
+TAuto does not embed platform-specific drivers. Host applications supply the concrete device, vision, and OCR implementations.
 
-### 3. Comprehensive Feature Set
-- **Rich Interaction**: Humanized Tap, Swipe, Type, and multi-point gestures.
-- **Vision & OCR**: Native integration with OpenCV and Tesseract.
-- **Execution Tracing**: Real-time performance metrics and visit counts for every state and transition.
-- **Validation Suite**: Built-in tools to detect unreachable states, infinite loops, and missing targets before execution.
+## Core Concepts
 
-## 🏗️ Plug-and-Play Architecture
+### `IAction`
 
-TAuto is designed as a **pure logic engine**. It does not include built-in drivers for screen capture or input injection. Instead, it defines clean high-level interfaces that you must implement for your specific platform:
+Every action executes against a `ScriptContext` and can opt into breakpoints, retries, and continue-on-error behavior.
 
-- **`IDeviceController`**: Implement this to handle `Tap`, `Swipe`, and `Screenshot` logic (e.g., using ADB, Selenium, or Win32 API).
-- **`IVisionService`**: Implement this to provide image matching capabilities (e.g., using OpenCV).
-- **`IOcrService`**: Implement this for text recognition (e.g., using Tesseract).
+### `ScriptContext`
 
----
+`ScriptContext` is the shared runtime facade. It exposes:
 
-## 🚀 Quick Start
+- `Device`, `Vision`, and `Ocr`
+- capture APIs such as `UpdateScreenCaptureAsync()`
+- global variables, scoped local variables, and events
+- metadata such as `SessionId`, `TargetId`, `Persona`, `Session`, and `HealthMonitor`
+- cached match results reused across actions in the same frame
 
-### 1. Basic Script Runner
-To run a script, provide your implementations of the core interfaces.
+### `StateMachine`
+
+`StateMachine` is the primary execution model in this repo. It runs named states, entry actions, local transitions, and global transitions through `RunAsync(context, ct)`.
+
+### `StateMachineBuilder`
+
+`StateMachineBuilder` is the preferred authoring API. It provides fluent methods for:
+
+- machine setup: `StartAt`, `MaxTransitions`
+- state setup: `State`, `MaxDuration`, `PollingIntervals`
+- entry actions: `Log`, `Delay`, `PressKey`, `Tap`, `TapScaled`, `ClickImage`, `ExtractText`, `Action`
+- transitions: `TransitionTo`, `Fallback`, `GlobalTransition`
+
+## Quick Start
 
 ```csharp
-using TAuto.Automation;
-using TAuto.Automation.Actions;
+using TAuto.Automation.StateMachine;
 using TAuto.Core;
 
-// 1. Setup your custom implementations
-IDeviceController device = new YourCustomDeviceController();
-IVisionService vision = new YourCustomVisionService();
-IOcrService ocr = new YourCustomOcrService();
-ILoggerService logger = new ConsoleLogger();
+IDeviceController device = new YourDeviceController();
+IVisionService vision = new YourVisionService();
+IOcrService ocr = new YourOcrService();
 
-// 2. Initialize Context
 var context = new ScriptContext(device, vision, ocr);
 
-// 3. Define Actions
-var actions = new List<IAction>
-{
-    new TapAction { X = 100, Y = 200, DisplayName = "Open App" },
-    new DelayAction { DurationMs = 2000 },
-    new SwipeAction { X1 = 500, Y1 = 800, X2 = 500, Y2 = 200, DurationMs = 500 }
-};
+var machine = new StateMachineBuilder()
+    .StartAt("CheckCity")
+    .State("CheckCity")
+        .Log("Checking city view...")
+        .ClickImage("templates/city_button.png", delayAfterMs: 500, timeoutMs: 1500)
+        .TransitionTo("OpenMenu", When.ImageFound("templates/menu_icon.png"), priority: 10)
+        .Fallback("END")
+    .State("OpenMenu")
+        .TapScaled(640, 360)
+        .Delay(1000)
+        .Fallback("END")
+    .Build();
 
-// 4. Run Script
-var runner = new ScriptRunner(logger);
-await runner.RunAsync(actions, context, CancellationToken.None);
+machine.OnStateChanged += (_, stateName) => context.SetVariable("_currentState", stateName);
+
+var result = await machine.RunAsync(context, CancellationToken.None);
 ```
 
-### 2. State Machine
-Manage complex automation with states and dynamic transitions.
+## Design Notes
 
-```csharp
-var sm = new StateMachineAction();
+- Global transitions are checked as interrupts across all states.
+- `Build()` validates the graph and rejects broken state machines early.
+- `END` is treated as a terminal transition target by the executor.
+- `TapScaled` records coordinates against the default reference resolution and scales them to the active device at runtime.
 
-var searchState = new State 
-{ 
-    Name = "Search",
-    FastCheckIntervalMs = 50,
-    SlowCheckIntervalMs = 1000 
-};
+## Documentation
 
-// Add an event-driven transition (responsive <1ms)
-searchState.Transitions.Add(new EventTransition 
-{ 
-    ToState = "Combat", 
-    EventName = "EnemySpotted",
-    Priority = 10
-});
+- [docs/state-machine-builder.md](./docs/state-machine-builder.md)
+- [docs/bot-development-guide.md](./docs/bot-development-guide.md)
+- [TESTING.md](./TESTING.md)
+- [CONTRIBUTING.md](./CONTRIBUTING.md)
 
-// Add a vision-based polling transition
-searchState.Transitions.Add(new StateTransition 
-{ 
-    ToState = "Victory", 
-    Condition = new IfImageFoundAction { TemplatePath = "victory.png" }
-});
+## License
 
-sm.Machine.States.Add(searchState);
-
-// Run with metrics tracking
-var result = await sm.ExecuteAsync(context, CancellationToken.None);
-```
-
-## 🏗️ Architecture
-TAuto is split into two core modules:
-- **TAuto.Core**: Contains the shared interfaces (`IAction`, `IDeviceController`, etc.) and the data models.
-- **TAuto.Automation**: Contains the `ScriptRunner`, `StateMachine` implementation, and standard action types.
-
-## 📚 Documentation & Community
-- **[Contributing](./CONTRIBUTING.md)**: How to help improve the engine.
-- **[Contributors](./CONTRIBUTORS.md)**: People behind the project.
-- **[Security](./SECURITY.md)**: Security reporting policy.
-
-## ⚖️ License
 MIT License. Copyright (c) 2026 txqt.
 

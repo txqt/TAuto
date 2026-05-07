@@ -1,4 +1,4 @@
-# StateMachineBuilder – Fluent API Reference
+# StateMachineBuilder - Fluent API Reference
 
 `StateMachineBuilder` provides a chainable, readable API for constructing `StateMachine` instances.
 It produces the same object graph as manual construction but eliminates boilerplate.
@@ -26,10 +26,8 @@ var sm = new StateMachineBuilder()
 
     .Build();
 
-await sm.RunAsync(context, cancellationToken);
-
-// Track current state in context (Useful for Protected State pattern)
 sm.OnStateChanged += (_, stateName) => context.SetVariable("_currentState", stateName);
+await sm.RunAsync(context, cancellationToken);
 ```
 
 ---
@@ -131,11 +129,11 @@ Transition with actions that execute during the transition:
 ### `.Fallback(targetState, timeoutMs?)`
 
 Shorthand for a fallback transition (lowest priority, no condition).
-Use `null` as target to end the state machine:
+Use `END` as the terminal target when you want the machine to stop:
 
 ```csharp
 .Fallback("RetryState")       // fallback to another state
-.Fallback(null)               // end the state machine (transition to END)
+.Fallback("END")              // end the state machine
 ```
 
 ---
@@ -157,10 +155,10 @@ Global transitions run **before** state logic. Sometimes you want to disable an 
 ```csharp
 var protectedStates = new[] { nameof(S.Marching), nameof(S.Confirming) };
 
-builder.GlobalTransition(nameof(S.ClosePopup), When.Condition((ctx, ct) => {
+builder.GlobalTransition(nameof(S.ClosePopup), When.Condition(async (ctx, ct) => {
     var current = ctx.GetString("_currentState");
-    if (protectedStates.Contains(current)) return ActionResult.Fail(); // Ignored
-    return Vision.Found("popup.png") ? ActionResult.Ok() : ActionResult.Fail();
+    if (protectedStates.Contains(current)) return ActionResult.Fail();
+    return await IsPopupVisibleAsync(ctx, ct) ? ActionResult.Ok() : ActionResult.Fail();
 }), priority: 200);
 ```
 
@@ -175,7 +173,7 @@ The `When` class provides fluent shortcuts for transition conditions:
 | `When.Always` | Always true (`null` – unconditional). |
 | `When.ImageFound(templatePath, threshold?)` | True if template is found on screen. |
 | `When.TextFound(text, caseSensitive?, partialMatch?)` | True if OCR finds text on screen. |
-| `When.Variable(name, expectedValue, op?)` | True if context variable matches. Operators: `==`, `!=`, `>`, `<`, `>=`, `<=`. |
+| `When.Variable(name, expectedValue, op?)` | True if a context variable matches the expected string value. Operators: `==`, `!=`, `>`, `<`, `>=`, `<=`. |
 | `When.IsTrue(variableName)` | Shorthand for `Variable(name, "True")`. |
 | `When.IsFalse(variableName)` | Shorthand for `Variable(name, "False")`. |
 | `When.Condition(Func<ScriptContext, CancellationToken, Task<ActionResult>>)` | Custom async condition. |
@@ -257,7 +255,7 @@ var sm = new StateMachineBuilder()
             ContinueOnError = true
         })
         .OnExitLog("Cycle complete.")
-        .Fallback(null) // END
+        .Fallback("END")
 
     .Build();
 ```

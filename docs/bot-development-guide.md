@@ -1,12 +1,12 @@
-# 🤖 TAuto Bot Development Guide
+# TAuto Bot Development Guide
 
-> A comprehensive reference for building intelligent bots using the StateMachine framework — synthesized from real-world debugging and common pitfalls.
+> Practical guidance for building TAuto bots around `StateMachineBuilder`, `ScriptContext`, and observable UI states.
 
 ---
 
 ## 1. Core Architecture
 
-TAuto bots operate on a **Screen-driven State Machine** model:
+TAuto bots in this repo operate on a screen-driven state machine model:
 
 - **State = Observable Screen**: Each state represents a recognizable UI screen or application state, not just a procedural step.
 - **Reactive, Not Procedural**: The bot observes the screen and reacts accordingly, rather than following a rigid, linear script.
@@ -48,7 +48,7 @@ public class MyBot : BotBase
     // 4. Entry Point
     public override async Task RunAsync()
     {
-        var sm = new StateMachineBuilder()
+        var machine = new StateMachineBuilder()
             .StartAt(nameof(S.ScreenDetect))
             .GlobalTransition(...) // Register interrupts
             .State(nameof(S.ScreenDetect))
@@ -56,9 +56,9 @@ public class MyBot : BotBase
             .Build();
 
         // Required: Track current state for ProtectedStates logic
-        sm.OnStateChanged += (_, name) => Context.SetVariable("_currentState", name);
+        machine.OnStateChanged += (_, name) => Context.SetVariable("_currentState", name);
         
-        await sm.RunAsync(Context, CancellationToken);
+        await machine.RunAsync(Context, CancellationToken);
     }
 }
 ```
@@ -110,7 +110,7 @@ Define where to go next based on visual or logical conditions.
 | `When.TextFound(text)` | Trigger when specific text is recognized via OCR. |
 | `When.IsTrue(varName)` | Trigger when a boolean variable is `true`. |
 | `When.IsFalse(varName)` | Trigger when a boolean variable is `false`. |
-| `When.Variable(name, value)` | Trigger when a variable matches a specific value. |
+| `When.Variable(name, value)` | Trigger when a variable matches a specific string value. |
 | `When.Condition(async (ctx, ct) => ...)` | Custom logic lambda. |
 | `When.Always` / `null` | Unconditional transition. |
 
@@ -126,7 +126,7 @@ Global transitions check for conditions (like popups or errors) across **all** s
 
 ```csharp
 // 1. MUST track current state in RunAsync()
-sm.OnStateChanged += (_, name) => Context.SetVariable("_currentState", name);
+machine.OnStateChanged += (_, name) => Context.SetVariable("_currentState", name);
 
 // 2. Define Protected States where interrupts are forbidden
 private static readonly HashSet<string> ProtectedStates = new()
@@ -154,9 +154,9 @@ builder.GlobalTransition(nameof(S.DismissPopup),
     priority: 200) // Ensure priority is higher than local transitions
 ```
 
-### ⚠️ 3 Common GlobalTransition Mistakes
+### 3 Common GlobalTransition Mistakes
 
-1.  **Checking `LastScreenCapture == null`**: Do **not** add a guard for `null` capture in your condition. `When.ImageFound` and `IsImageVisible` handle screen updates automatically. Blocking on `null` will prevent the transition from ever firing.
+1.  **Checking `LastScreenCapture == null` too early**: Do not fail a condition just because the previous cached frame is null. `When.ImageFound` and explicit `UpdateScreenCaptureAsync()` calls are the intended capture path.
 2.  **Missing Target in `ProtectedStates`**: If the target state of a GlobalTransition (e.g., `DismissPopup`) is not in the `ProtectedStates` list, the interrupt might trigger *again* before the entry actions (closing the popup) can finish, resulting in an infinite loop.
 3.  **Timing (EvaluateGlobalsBeforeEntry)**: Interrupts are checked **before** the entry actions of a state. If a popup appears *during* a 10s wait in an entry action, the interrupt will only fire *after* that action completes.
 
@@ -239,7 +239,7 @@ Never transition directly back to `ScreenDetect` on failure. Instead, use an `Er
 
 ## 10. Termination Logic
 
-A state machine should have a clear path to an **END** state or a transition to a final `Idle` state.
+A state machine should have a clear path to `END` or a transition to a final idle state.
 
 ```csharp
 .State(nameof(S.IdleWait))
@@ -249,7 +249,7 @@ A state machine should have a clear path to an **END** state or a transition to 
         await Task.Delay(wait * 1000, ct);
         return ActionResult.Ok();
     })
-    .TransitionTo(nameof(S.END), When.Condition(...))
+    .TransitionTo("END", When.Condition(...))
     .TransitionTo(nameof(S.ScreenDetect))
 ```
 
