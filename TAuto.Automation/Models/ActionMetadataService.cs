@@ -3,6 +3,7 @@ using TAuto.Core;
 
 namespace TAuto.Automation.Models;
 
+#if !SAAS_BUILD
 /// <summary>
 /// Scans assemblies for IAction implementations and extracts editor metadata.
 /// </summary>
@@ -123,3 +124,4 @@ public class ActionParameterDefinition
     public bool IsAdvanced { get; set; }
     public ActionParameterEditorType EditorType { get; set; } = ActionParameterEditorType.Default;
 }
+#endif
