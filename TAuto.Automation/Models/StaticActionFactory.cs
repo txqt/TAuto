@@ -7,66 +7,58 @@ namespace TAuto.Automation.Models;
 /// AOT-compatible action factory that maps type identifiers to concrete action instances
 /// without using reflection. This enables Native AOT compilation for the SaaS Worker.
 /// 
-/// When adding a new action, you MUST register it here in both dictionaries.
+/// When adding a new action, register it once in the table below.
 /// </summary>
 public static class StaticActionFactory
 {
+    private sealed record ActionRegistration(string Identifier, Type Type, Func<IAction> Factory);
+
     /// <summary>
-    /// All known action type mappings: identifier → constructor.
+    /// All known action type mappings.
     /// The identifier is the FullName of the action class (e.g. "TAuto.Automation.Actions.TapAction").
     /// </summary>
-    private static readonly Dictionary<string, Func<IAction>> _factories = new(StringComparer.Ordinal)
-    {
-        ["TAuto.Automation.Actions.ClickImageAction"] = () => new ClickImageAction(),
-        ["TAuto.Automation.Actions.ClickTextAction"] = () => new ClickTextAction(),
-        ["TAuto.Automation.Actions.DelayAction"] = () => new DelayAction(),
-        ["TAuto.Automation.Actions.ExtractTextAction"] = () => new ExtractTextAction(),
-        ["TAuto.Automation.Actions.FindColorAction"] = () => new FindColorAction(),
-        ["TAuto.Automation.Actions.FindImageAction"] = () => new FindImageAction(),
-        ["TAuto.Automation.Actions.GetClipboardAction"] = () => new GetClipboardAction(),
-        ["TAuto.Automation.Actions.IfImageFoundAction"] = () => new IfImageFoundAction(),
-        ["TAuto.Automation.Actions.IfTextFoundAction"] = () => new IfTextFoundAction(),
-        ["TAuto.Automation.Actions.IfVariableAction"] = () => new IfVariableAction(),
-        ["TAuto.Automation.Actions.LogAction"] = () => new LogAction(),
-        ["TAuto.Automation.Actions.LongPressAction"] = () => new LongPressAction(),
-        ["TAuto.Automation.Actions.PressKeyAction"] = () => new PressKeyAction(),
-        ["TAuto.Automation.Actions.ReliableClickAction"] = () => new ReliableClickAction(),
-        ["TAuto.Automation.Actions.RestartGameAction"] = () => new RestartGameAction(),
-        ["TAuto.Automation.Actions.SetRandomVariableAction"] = () => new SetRandomVariableAction(),
-        ["TAuto.Automation.Actions.SetVariableAction"] = () => new SetVariableAction(),
-        ["TAuto.Automation.Actions.SwipeAction"] = () => new SwipeAction(),
-        ["TAuto.Automation.Actions.TapAction"] = () => new TapAction(),
-        ["TAuto.Automation.Actions.WaitForColorAction"] = () => new WaitForColorAction(),
-        ["TAuto.Automation.Actions.WaitForImageAction"] = () => new WaitForImageAction(),
-    };
+    private static readonly ActionRegistration[] _registrations =
+    [
+        Register<ClickImageAction>("TAuto.Automation.Actions.ClickImageAction", () => new ClickImageAction()),
+        Register<ClickTextAction>("TAuto.Automation.Actions.ClickTextAction", () => new ClickTextAction()),
+        Register<DelayAction>("TAuto.Automation.Actions.DelayAction", () => new DelayAction()),
+        Register<ExtractTextAction>("TAuto.Automation.Actions.ExtractTextAction", () => new ExtractTextAction()),
+        Register<FindColorAction>("TAuto.Automation.Actions.FindColorAction", () => new FindColorAction()),
+        Register<FindImageAction>("TAuto.Automation.Actions.FindImageAction", () => new FindImageAction()),
+        Register<GetClipboardAction>("TAuto.Automation.Actions.GetClipboardAction", () => new GetClipboardAction()),
+        Register<IfImageFoundAction>("TAuto.Automation.Actions.IfImageFoundAction", () => new IfImageFoundAction()),
+        Register<IfTextFoundAction>("TAuto.Automation.Actions.IfTextFoundAction", () => new IfTextFoundAction()),
+        Register<IfVariableAction>("TAuto.Automation.Actions.IfVariableAction", () => new IfVariableAction()),
+        Register<LogAction>("TAuto.Automation.Actions.LogAction", () => new LogAction()),
+        Register<LongPressAction>("TAuto.Automation.Actions.LongPressAction", () => new LongPressAction()),
+        Register<PressKeyAction>("TAuto.Automation.Actions.PressKeyAction", () => new PressKeyAction()),
+        Register<ReliableClickAction>("TAuto.Automation.Actions.ReliableClickAction", () => new ReliableClickAction()),
+        Register<RestartGameAction>("TAuto.Automation.Actions.RestartGameAction", () => new RestartGameAction()),
+        Register<SetRandomVariableAction>("TAuto.Automation.Actions.SetRandomVariableAction", () => new SetRandomVariableAction()),
+        Register<SetVariableAction>("TAuto.Automation.Actions.SetVariableAction", () => new SetVariableAction()),
+        Register<SwipeAction>("TAuto.Automation.Actions.SwipeAction", () => new SwipeAction()),
+        Register<TapAction>("TAuto.Automation.Actions.TapAction", () => new TapAction()),
+        Register<WaitForColorAction>("TAuto.Automation.Actions.WaitForColorAction", () => new WaitForColorAction()),
+        Register<WaitForImageAction>("TAuto.Automation.Actions.WaitForImageAction", () => new WaitForImageAction()),
+    ];
+
+    private static readonly Dictionary<string, Func<IAction>> _factories = _registrations
+        .ToDictionary(r => r.Identifier, r => r.Factory, StringComparer.Ordinal);
+
+    private static readonly Dictionary<string, Type> _types = _registrations
+        .ToDictionary(r => r.Identifier, r => r.Type, StringComparer.Ordinal);
 
     /// <summary>
     /// Reverse mapping: Type → identifier string (for serialization).
     /// </summary>
-    private static readonly Dictionary<Type, string> _reverseMap = new()
+    private static readonly Dictionary<Type, string> _reverseMap = _registrations
+        .ToDictionary(r => r.Type, r => r.Identifier);
+
+    private static ActionRegistration Register<TAction>(string identifier, Func<IAction> factory)
+        where TAction : IAction
     {
-        [typeof(ClickImageAction)] = "TAuto.Automation.Actions.ClickImageAction",
-        [typeof(ClickTextAction)] = "TAuto.Automation.Actions.ClickTextAction",
-        [typeof(DelayAction)] = "TAuto.Automation.Actions.DelayAction",
-        [typeof(ExtractTextAction)] = "TAuto.Automation.Actions.ExtractTextAction",
-        [typeof(FindColorAction)] = "TAuto.Automation.Actions.FindColorAction",
-        [typeof(FindImageAction)] = "TAuto.Automation.Actions.FindImageAction",
-        [typeof(GetClipboardAction)] = "TAuto.Automation.Actions.GetClipboardAction",
-        [typeof(IfImageFoundAction)] = "TAuto.Automation.Actions.IfImageFoundAction",
-        [typeof(IfTextFoundAction)] = "TAuto.Automation.Actions.IfTextFoundAction",
-        [typeof(IfVariableAction)] = "TAuto.Automation.Actions.IfVariableAction",
-        [typeof(LogAction)] = "TAuto.Automation.Actions.LogAction",
-        [typeof(LongPressAction)] = "TAuto.Automation.Actions.LongPressAction",
-        [typeof(PressKeyAction)] = "TAuto.Automation.Actions.PressKeyAction",
-        [typeof(ReliableClickAction)] = "TAuto.Automation.Actions.ReliableClickAction",
-        [typeof(RestartGameAction)] = "TAuto.Automation.Actions.RestartGameAction",
-        [typeof(SetRandomVariableAction)] = "TAuto.Automation.Actions.SetRandomVariableAction",
-        [typeof(SetVariableAction)] = "TAuto.Automation.Actions.SetVariableAction",
-        [typeof(SwipeAction)] = "TAuto.Automation.Actions.SwipeAction",
-        [typeof(TapAction)] = "TAuto.Automation.Actions.TapAction",
-        [typeof(WaitForColorAction)] = "TAuto.Automation.Actions.WaitForColorAction",
-        [typeof(WaitForImageAction)] = "TAuto.Automation.Actions.WaitForImageAction",
-    };
+        return new ActionRegistration(identifier, typeof(TAction), factory);
+    }
 
     /// <summary>
     /// Create an action instance from its type identifier string.
@@ -91,13 +83,7 @@ public static class StaticActionFactory
     /// </summary>
     public static Type? GetActionType(string typeIdentifier)
     {
-        if (_factories.TryGetValue(typeIdentifier, out var factory))
-        {
-            // Create a temporary instance to get the type, then discard it.
-            // This is only called during converter initialization, not per-action.
-            return factory().GetType();
-        }
-        return null;
+        return _types.TryGetValue(typeIdentifier, out var type) ? type : null;
     }
 
     /// <summary>
