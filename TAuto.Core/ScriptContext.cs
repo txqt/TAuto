@@ -16,6 +16,7 @@ public class ScriptContext : IDisposable
 {
     private readonly ScriptState _state = new();
     private readonly ScreenCaptureManager _captureManager;
+    private readonly Services.IContinuousCaptureService _continuousCapture;
     
     /// <summary>
     /// State-scoped local variables. Key = StateName, Value = local variable dictionary.
@@ -60,7 +61,11 @@ public class ScriptContext : IDisposable
     public int CaptureIntervalMs 
     { 
         get => _captureManager.CaptureIntervalMs;
-        set => _captureManager.CaptureIntervalMs = value;
+        set 
+        {
+            _captureManager.CaptureIntervalMs = value;
+            _continuousCapture.CaptureIntervalMs = value;
+        }
     }
 
     /// <summary>
@@ -70,7 +75,11 @@ public class ScriptContext : IDisposable
     public int CaptureTimeoutMs
     {
         get => _captureManager.CaptureTimeoutMs;
-        set => _captureManager.CaptureTimeoutMs = value;
+        set 
+        {
+            _captureManager.CaptureTimeoutMs = value;
+            _continuousCapture.CaptureTimeoutMs = value;
+        }
     }
 
     public System.Drawing.Point? LastFoundImageLocation 
@@ -101,14 +110,15 @@ public class ScriptContext : IDisposable
         Logger = logger;
 
         _captureManager = new ScreenCaptureManager(Device);
+        _continuousCapture = new Services.ContinuousCaptureService(Device, _captureManager);
     }
 
-    public void StartCaptureLoop() => _captureManager.StartCaptureLoop();
-    public void StopCaptureLoop() => _captureManager.StopCaptureLoop();
+    public void StartCaptureLoop() => _continuousCapture.Start();
+    public void StopCaptureLoop() => _continuousCapture.Stop();
     public event EventHandler<IImage>? FrameCaptured
     {
-        add => _captureManager.FrameCaptured += value;
-        remove => _captureManager.FrameCaptured -= value;
+        add => _continuousCapture.FrameCaptured += value;
+        remove => _continuousCapture.FrameCaptured -= value;
     }
 
     private readonly Dictionary<(string, double), TemplateMatchResult> _visionCache = new();
@@ -199,6 +209,7 @@ public class ScriptContext : IDisposable
     #endregion
     public void Dispose()
     {
+        _continuousCapture?.Dispose();
         _captureManager?.Dispose();
         _visionCache.Clear();
         _scopedVariables.Clear();

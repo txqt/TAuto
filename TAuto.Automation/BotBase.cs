@@ -82,6 +82,8 @@ public abstract class BotBase
     /// run mode (Standard/CustomUI/CLI), and configurable arguments.
     /// Returns null by default (Standard mode, no arguments).
     /// </summary>
+    public IUserInterfaceAdapter UI { get; set; } = new Services.ConsoleInteractionService();
+
     public virtual BotConfiguration? GetConfiguration() => null;
 
     /// <summary>
@@ -100,79 +102,12 @@ public abstract class BotBase
     public virtual void OnCreateConsole() { }
 
     /// <summary>
-    /// Displays an interactive menu in the console.
+    /// Displays an interactive menu.
     /// Returns the index of the selected option.
     /// </summary>
     public virtual Task<int> ShowMenu(string title, params string[] options)
     {
-        if (options == null || options.Length == 0) return Task.FromResult(-1);
-
-        // Check if we are in a Console environment
-        // Simple check: Console.WindowHeight throws if no console
-        try
-        {
-            var _ = Console.WindowHeight;
-        }
-        catch
-        {
-            // Not a console app or no console attached
-            Log("ShowMenu called but no Console available. Returning default 0.");
-            return Task.FromResult(0); 
-        }
-
-        return Task.Run(() =>
-        {
-            int selectedIndex = 0;
-            bool done = false;
-
-            // Hide cursor
-            try { Console.CursorVisible = false; } catch { }
-
-            while (!done)
-            {
-                Console.Clear();
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"=== {title} ===");
-                Console.ResetColor();
-                Console.WriteLine("Use ↑/↓ to navigate, Enter to select.\n");
-
-                for (int i = 0; i < options.Length; i++)
-                {
-                    if (i == selectedIndex)
-                    {
-                        Console.ForegroundColor = ConsoleColor.Green;
-                        Console.WriteLine($" > {options[i]}");
-                        Console.ResetColor();
-                    }
-                    else
-                    {
-                        Console.WriteLine($"   {options[i]}");
-                    }
-                }
-
-                var key = Console.ReadKey(true).Key;
-                switch (key)
-                {
-                    case ConsoleKey.UpArrow:
-                        selectedIndex--;
-                        if (selectedIndex < 0) selectedIndex = options.Length - 1;
-                        break;
-                    case ConsoleKey.DownArrow:
-                        selectedIndex++;
-                        if (selectedIndex >= options.Length) selectedIndex = 0;
-                        break;
-                    case ConsoleKey.Enter:
-                        done = true;
-                        break;
-                }
-            }
-
-            try { Console.CursorVisible = true; } catch { }
-            Console.Clear(); // Clear menu after selection
-            
-            Log($"Menu selection: {options[selectedIndex]}");
-            return selectedIndex;
-        });
+        return UI.ShowMenuAsync(title, options);
     }
 
 
@@ -243,7 +178,7 @@ public abstract class BotBase
     protected void Log(string message)
     {
         OnLogReceived?.Invoke(message);
-        Console.WriteLine($"[Bot] {message}");
+        UI.WriteMessage($"[Bot] {message}");
         Logger?.LogInformation(message);
     }
 
