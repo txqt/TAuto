@@ -41,14 +41,10 @@ public class IpcMessage
     /// </summary>
     public static IpcMessage? FromJson(string json)
     {
-        try
-        {
-            // Strip UTF-8 BOM if present (safety net for pipe encoding mismatches)
-            if (json.Length > 0 && json[0] == '\uFEFF')
-                json = json[1..];
-            return JsonSerializer.Deserialize(json, IpcJsonSerializerContext.Default.IpcMessage);
-        }
-        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[IPC] Message deserialization failed: {ex.Message}"); return null; }
+        // Strip UTF-8 BOM if present (safety net for pipe encoding mismatches)
+        if (json.Length > 0 && json[0] == '\uFEFF')
+            json = json[1..];
+        return JsonSerializer.Deserialize(json, IpcJsonSerializerContext.Default.IpcMessage);
     }
 
     /// <summary>

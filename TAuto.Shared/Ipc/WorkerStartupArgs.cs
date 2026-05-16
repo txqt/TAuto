@@ -76,6 +76,12 @@ public class WorkerStartupArgs
     public string? NativeExePath { get; set; }
 
     /// <summary>
+    /// Named Pipe name for Manager-Worker communication.
+    /// Used for reconciliation after Engine restarts.
+    /// </summary>
+    public string? PipeName { get; set; }
+
+    /// <summary>
     /// Named Pipe name for VisionServer communication.
     /// Native AOT bots use this to connect to a VisionServer process
     /// for OpenCV/Tesseract operations (since they can't link those directly).

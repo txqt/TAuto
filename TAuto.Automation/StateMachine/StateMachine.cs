@@ -55,7 +55,12 @@ public class StateMachine
     internal void NotifyStateChanged(string stateName)
     {
         try { OnStateChanged?.Invoke(this, stateName); }
-        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[StateMachine] OnStateChanged handler error: {ex.Message}"); }
+        catch (Exception ex) 
+        { 
+            // We don't have a logger in the FSM instance itself usually, 
+            // but we can at least ensure this doesn't crash the loop.
+            System.Diagnostics.Debug.WriteLine($"[StateMachine] OnStateChanged handler error: {ex.Message}"); 
+        }
     }
 
     internal void LogTrace(string eventType, string stateName, string? toState = null, string? details = null, int pollCount = 0, double elapsedMs = 0)

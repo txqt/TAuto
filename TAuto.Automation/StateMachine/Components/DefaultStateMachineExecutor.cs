@@ -184,7 +184,7 @@ public class DefaultStateMachineExecutor : IStateMachineExecutor
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[StateMachine] Transition evaluation error: {ex.Message}");
+                        context.Logger?.Warning($"[StateMachine] Transition evaluation error for {transition.ToState}: {ex.Message}");
                         transitionRetryCounts[transition]++;
                         continue;
                     }

@@ -95,7 +95,69 @@ public class ProcessManagerService : IDisposable
 
     public IEnumerable<string> GetActiveWorkers() => _workers.Keys;
 
-    public async Task<string> StartWorkerAsync(WorkerStartupArgs startupArgs, string botFolder, CancellationToken cancellationToken = default)
+    public async Task ReconcileAsync(IEnumerable<TAuto.Shared.Models.ReconciliationData> activeRuns)
+    {
+        _logger?.LogInformation("Starting process reconciliation for {Count} active runs.", activeRuns.Count());
+        
+        foreach (var run in activeRuns)
+        {
+            if (run.ProcessId == null || string.IsNullOrEmpty(run.PipeName) || string.IsNullOrEmpty(run.WorkerId))
+                continue;
+
+            try
+            {
+                var process = Process.GetProcessById(run.ProcessId.Value);
+                if (process.HasExited || !process.ProcessName.Contains("AutoBot.Worker"))
+                {
+                    _logger?.LogWarning("Orphaned run {RunId} process {Pid} is not a valid worker or has exited.", run.RunId, run.ProcessId);
+                    continue;
+                }
+
+                _logger?.LogInformation("Found orphaned process {Pid} for worker {WorkerId}. Re-attaching...", run.ProcessId, run.WorkerId);
+
+                // Re-create pipe server
+                var pipeServer = _pipeRegistry.CreatePipeServer(run.PipeName);
+
+                var startupArgs = new WorkerStartupArgs
+                {
+                    WorkerId = run.WorkerId,
+                    PipeName = run.PipeName,
+                    BaseDirectory = run.BotFolder,
+                    Platform = run.Platform,
+                    TargetId = run.DeviceSerial,
+                    BotTypeName = run.BotName // Approximate
+                };
+
+                var worker = new WorkerProcess
+                {
+                    WorkerId = run.WorkerId,
+                    Process = process,
+                    PipeServer = pipeServer,
+                    StartupArgs = startupArgs,
+                    Cts = new CancellationTokenSource(),
+                    StartTimeUtc = run.StartTimeUtc,
+                    IsInitialized = true // Assume it was running
+                };
+
+                _workers[run.WorkerId] = worker;
+                AttachWorkerHandlers(run.WorkerId, worker);
+                
+                OnWorkerStatusChanged?.Invoke(run.WorkerId, WorkerStates.Running);
+            }
+            catch (ArgumentException)
+            {
+                _logger?.LogWarning("Process {Pid} for run {RunId} not found.", run.ProcessId, run.RunId);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Failed to reconcile worker {WorkerId}.", run.WorkerId);
+            }
+        }
+        
+        await Task.CompletedTask;
+    }
+
+    public async Task<TAuto.Shared.Models.WorkerStartResult> StartWorkerAsync(WorkerStartupArgs startupArgs, string botFolder, CancellationToken cancellationToken = default)
     {
         var workerId = string.IsNullOrEmpty(startupArgs.WorkerId) ? $"worker-{Random.Shared.Next(1000, 9999)}" : startupArgs.WorkerId;
         var workerLock = _workerLocks.GetOrAdd(workerId, _ => new SemaphoreSlim(1, 1));
@@ -123,7 +185,7 @@ public class ProcessManagerService : IDisposable
                     if (existingWorker is WorkerProcess wpTrack) wpTrack.StartupArgs = startupArgs;
                     existingWorker.MessageChannel.Writer.TryWrite(IpcMessage.Create(IpcMessageTypes.Start, startupArgs).ToJson());
                     OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Starting);
-                    return workerId;
+                    return new TAuto.Shared.Models.WorkerStartResult(workerId, existingWorker.Process.Id, existingWorker.StartupArgs.PipeName);
                 }
                 else
                 {
@@ -141,6 +203,7 @@ public class ProcessManagerService : IDisposable
             }
 
             var pipeName = $"AutoBot_Worker_{workerId}_{Guid.NewGuid():N}";
+            startupArgs.PipeName = pipeName;
             OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Starting);
 
             var pipeServer = _pipeRegistry.CreatePipeServer(pipeName);
@@ -233,8 +296,7 @@ public class ProcessManagerService : IDisposable
                 OnWorkerStatusChanged?.Invoke(workerId, WorkerStates.Stopped);
                 _workers.TryRemove(workerId, out _);
             }
-
-            return workerId;
+            return new TAuto.Shared.Models.WorkerStartResult(workerId, process.Id, pipeName);
         }
         finally { if (workerLock != null) try { workerLock.Release(); } catch { } }
     }

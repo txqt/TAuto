@@ -54,7 +54,17 @@ public class WorkerIpcListener
                 var line = await worker.Reader.ReadLineAsync(worker.Cts.Token);
                 if (line == null) break;
 
-                var msg = IpcMessage.FromJson(line);
+                IpcMessage? msg = null;
+                try
+                {
+                    msg = IpcMessage.FromJson(line);
+                }
+                catch (JsonException ex)
+                {
+                    _logger?.LogWarning(ex, "Worker '{WorkerId}' sent malformed JSON: {Line}", worker.WorkerId, line);
+                    continue;
+                }
+                
                 if (msg == null) continue;
 
                 switch (msg.Type)

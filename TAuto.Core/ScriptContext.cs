@@ -14,7 +14,7 @@ namespace TAuto.Core;
 /// </summary>
 public class ScriptContext : IDisposable
 {
-    private readonly ScriptState _state = new();
+    private readonly ScriptState _state;
     private readonly ScreenCaptureManager _captureManager;
     private readonly Services.IContinuousCaptureService _continuousCapture;
     
@@ -108,6 +108,7 @@ public class ScriptContext : IDisposable
         Vision = vision ?? throw new ArgumentNullException(nameof(vision));
         Ocr = ocr ?? throw new ArgumentNullException(nameof(ocr));
         Logger = logger;
+        _state = new ScriptState(Logger);
 
         _captureManager = new ScreenCaptureManager(Device);
         _continuousCapture = new Services.ContinuousCaptureService(Device, _captureManager);
@@ -185,7 +186,11 @@ public class ScriptContext : IDisposable
         {
             if (value is T typedValue) return typedValue;
             try { return (T)Convert.ChangeType(value, typeof(T)); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[ScriptContext] GetVar<{typeof(T).Name}>('{key}') cast failed: {ex.Message}"); return defaultValue; }
+            catch (Exception ex) 
+            { 
+                Logger?.Warning($"[ScriptContext] GetLocalVar<{typeof(T).Name}>('{key}') in state '{stateName}' cast failed from type {value?.GetType().Name}: {ex.Message}");
+                return defaultValue; 
+            }
         }
         return defaultValue;
     }

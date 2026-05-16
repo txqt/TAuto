@@ -12,9 +12,15 @@ namespace TAuto.Core;
 /// </summary>
 public class ScriptState
 {
+    private readonly ILoggerService? _logger;
     private readonly ConcurrentDictionary<string, object> _variables = new();
     private readonly ConcurrentDictionary<string, byte> _raisedEvents = new();
     private readonly SemaphoreSlim _eventSignal = new(0);
+
+    public ScriptState(ILoggerService? logger = null)
+    {
+        _logger = logger;
+    }
 
     // Event for UI to watch variables
     public event EventHandler<VariableChangedEventArgs>? VariableChanged;
@@ -29,7 +35,11 @@ public class ScriptState
         {
             if (value is T typedValue) return typedValue;
             try { return (T)Convert.ChangeType(value, typeof(T)); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[ScriptState] GetVar<{typeof(T).Name}>('{name}') cast failed: {ex.Message}"); return defaultValue; }
+            catch (Exception ex) 
+            { 
+                _logger?.Warning($"[ScriptState] GetVar<{typeof(T).Name}>('{name}') cast failed from type {value?.GetType().Name}: {ex.Message}");
+                return defaultValue; 
+            }
         }
         return defaultValue;
     }
