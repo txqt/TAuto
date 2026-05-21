@@ -43,6 +43,12 @@ public class ScriptContext : IDisposable
     
     public Guid SessionId { get; } = Guid.NewGuid(); // Unique session ID
     
+    /// <summary>
+    /// When true, artificial delays (hesitation, Gaussian variance, micro-breaks) are injected into bot actions.
+    /// When false, actions run as fast as possible (useful for testing or high-performance scenarios).
+    /// Default: true (Safe mode).
+    /// </summary>
+    public bool EnableHumanization { get; set; } = true;
     /// <summary>Bot personality profile (loaded from disk, unique per bot).</summary>
     public BotPersona? Persona { get; set; }
     

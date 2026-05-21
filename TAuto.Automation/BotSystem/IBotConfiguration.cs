@@ -12,6 +12,7 @@ public interface IBotConfiguration
     int GetArgInt(string name, int defaultValue = 0);
     bool GetArgBool(string name, bool defaultValue = false);
     double GetArgDouble(string name, double defaultValue = 0.0);
+    event Action<string>? OnArgumentFallback;
 }
 
 public class DefaultBotConfiguration : IBotConfiguration
@@ -22,6 +23,8 @@ public class DefaultBotConfiguration : IBotConfiguration
     {
         Arguments = args ?? new();
     }
+
+    public event Action<string>? OnArgumentFallback;
 
     public T GetArg<T>(string name, T defaultValue = default!)
     {
@@ -42,10 +45,17 @@ public class DefaultBotConfiguration : IBotConfiguration
             try { return (T)Convert.ChangeType(value, typeof(T)); }
             catch (Exception ex) 
             {
-                System.Diagnostics.Debug.WriteLine($"[BotConfiguration] GetArg<{typeof(T).Name}>('{name}') cast failed: {ex.Message}");
+                string msg = $"[Warning] Argument '{name}' failed to parse. Falling back to default: '{defaultValue}'. Error: {ex.Message}";
+                System.Diagnostics.Debug.WriteLine(msg);
+                OnArgumentFallback?.Invoke(msg);
                 return defaultValue; 
             }
         }
+        
+        string missingMsg = $"[Warning] Argument '{name}' is missing. Falling back to default: '{defaultValue}'.";
+        System.Diagnostics.Debug.WriteLine(missingMsg);
+        OnArgumentFallback?.Invoke(missingMsg);
+
         return defaultValue;
     }
 

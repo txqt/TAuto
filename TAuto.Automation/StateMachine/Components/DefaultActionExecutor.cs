@@ -23,9 +23,12 @@ public class DefaultActionExecutor : IActionExecutor
         {
             if (ct.IsCancellationRequested) break;
 
-            // ── 1. Pre-action Gaussian delay (mandatory) ──
-            int preDelayMs = Math.Max(5, (int)GaussianSample(30 * speedMul, 10 * speedMul));
-            try { await Task.Delay(preDelayMs, ct); } catch (OperationCanceledException) { break; }
+            // ── 1. Pre-action Gaussian delay (mandatory, if humanization enabled) ──
+            if (context.EnableHumanization)
+            {
+                int preDelayMs = Math.Max(5, (int)GaussianSample(30 * speedMul, 10 * speedMul));
+                try { await Task.Delay(preDelayMs, ct); } catch (OperationCanceledException) { break; }
+            }
 
             // ── 2. Execute the action ──
             var actionResult = await action.ExecuteAsync(context, ct);
@@ -39,34 +42,37 @@ public class DefaultActionExecutor : IActionExecutor
             }
 
             // ── 4. Post-action micro-variance ──
-            int postDelayMs = Math.Max(0, (int)GaussianSample(15 * speedMul, 8 * speedMul));
-            if (postDelayMs > 0)
+            if (context.EnableHumanization)
             {
-                try { await Task.Delay(postDelayMs, ct); } catch (OperationCanceledException) { break; }
-            }
-
-            // ── 5. Hesitation check (2% chance) ──
-            if (_rng.NextDouble() < 0.02)
-            {
-                int hesitationMs = (int)GaussianSample(400, 150);
-                if (hesitationMs > 0)
+                int postDelayMs = Math.Max(0, (int)GaussianSample(15 * speedMul, 8 * speedMul));
+                if (postDelayMs > 0)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[Humanizer] Hesitation pause {hesitationMs}ms in '{stateName}'");
-                    try { await Task.Delay(hesitationMs, ct); } catch (OperationCanceledException) { break; }
+                    try { await Task.Delay(postDelayMs, ct); } catch (OperationCanceledException) { break; }
                 }
-            }
 
-            // ── 6. Risk-aware micro-break (if RiskScore > 75 and SLA allows) ──
-            if (context.Session != null && context.Session.RiskScore > 75)
-            {
-                int slaMax = context.Persona?.SlaMaxDowntimeMinutes ?? 15;
-                if (context.Session.CurrentSessionDowntimeMinutes < slaMax)
+                // ── 5. Hesitation check (2% chance) ──
+                if (_rng.NextDouble() < 0.02)
                 {
-                    int breakMs = (int)GaussianSample(3000, 1000); // 2-5s micro-break
-                    breakMs = Math.Max(500, breakMs);
-                    context.Session.CurrentSessionDowntimeMinutes += breakMs / 60000.0;
-                    System.Diagnostics.Debug.WriteLine($"[Humanizer] Micro-break {breakMs}ms (RiskScore={context.Session.RiskScore})");
-                    try { await Task.Delay(breakMs, ct); } catch (OperationCanceledException) { break; }
+                    int hesitationMs = (int)GaussianSample(400, 150);
+                    if (hesitationMs > 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[Humanizer] Hesitation pause {hesitationMs}ms in '{stateName}'");
+                        try { await Task.Delay(hesitationMs, ct); } catch (OperationCanceledException) { break; }
+                    }
+                }
+
+                // ── 6. Risk-aware micro-break (if RiskScore > 75 and SLA allows) ──
+                if (context.Session != null && context.Session.RiskScore > 75)
+                {
+                    int slaMax = context.Persona?.SlaMaxDowntimeMinutes ?? 15;
+                    if (context.Session.CurrentSessionDowntimeMinutes < slaMax)
+                    {
+                        int breakMs = (int)GaussianSample(3000, 1000); // 2-5s micro-break
+                        breakMs = Math.Max(500, breakMs);
+                        context.Session.CurrentSessionDowntimeMinutes += breakMs / 60000.0;
+                        System.Diagnostics.Debug.WriteLine($"[Humanizer] Micro-break {breakMs}ms (RiskScore={context.Session.RiskScore})");
+                        try { await Task.Delay(breakMs, ct); } catch (OperationCanceledException) { break; }
+                    }
                 }
             }
         }

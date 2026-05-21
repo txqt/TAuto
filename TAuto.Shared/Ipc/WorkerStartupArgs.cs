@@ -69,6 +69,12 @@ public class WorkerStartupArgs
     public bool EnableTrace { get; set; }
 
     /// <summary>
+    /// When false, humanization delays (hesitation, Gaussian variance, micro-breaks) are skipped.
+    /// Default true (safe mode). Set false for testing or high-performance scenarios.
+    /// </summary>
+    public bool EnableHumanization { get; set; } = true;
+
+    /// <summary>
     /// Path to a standalone Native AOT bot executable.
     /// When set, Engine spawns this EXE directly instead of Worker.exe.
     /// The bot code is compiled into the EXE — no Assembly.Load needed.

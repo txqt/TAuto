@@ -26,14 +26,29 @@ public abstract class BotBase
 
     public ILogger<BotBase>? Logger { get; set; }
     public IRetryPolicy RetryPolicy { get; set; } = new DefaultRetryPolicy();
-    public IBotConfiguration Configuration { get; set; } = new DefaultBotConfiguration();
+    private IBotConfiguration _configuration = null!;
+    public IBotConfiguration Configuration 
+    { 
+        get => _configuration;
+        set
+        {
+            if (_configuration != null) _configuration.OnArgumentFallback -= Configuration_OnArgumentFallback;
+            _configuration = value ?? new DefaultBotConfiguration();
+            _configuration.OnArgumentFallback += Configuration_OnArgumentFallback;
+        }
+    }
 
+    private void Configuration_OnArgumentFallback(string msg)
+    {
+        Log(msg);
+    }
     public IBotPausable Pausable { get; }
     public IVisionHelper Vision { get; }
     public IGameLifecycle Lifecycle { get; }
 
     protected BotBase()
     {
+        Configuration = new DefaultBotConfiguration();
         Pausable = new DefaultBotPausable(() => Logger);
         Vision = new DefaultVisionHelper(() => Context, () => CancellationToken, () => Pausable, () => Logger);
         Lifecycle = new DefaultGameLifecycle(() => Context, () => Logger);
