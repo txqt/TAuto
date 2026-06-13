@@ -36,7 +36,7 @@ public sealed class JobObject : IDisposable
             ProcessMemoryLimit = new UIntPtr(500 * 1024 * 1024) // 500 MB per Worker Limit
         };
 
-        int infoSize = Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
+        int infoSize = Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
         IntPtr infoPtr = Marshal.AllocHGlobal(infoSize);
         try
         {
